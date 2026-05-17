@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
@@ -19,6 +20,12 @@ from trading_agent.strategy.threshold import ThresholdStrategy
 
 
 app = Flask(__name__)
+CORS(
+    app,
+    resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGINS", "*").split(",")}},
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "OPTIONS"],
+)
 
 
 @app.after_request
