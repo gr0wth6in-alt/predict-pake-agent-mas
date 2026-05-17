@@ -43,8 +43,8 @@ Create buttons for:
 
 Show prediction confidence, direction_score, buy/sell/hold signal, risk approval, paper fill, and backtest return.
 Do not store broker keys in the frontend.
-Use CoinGecko as the only market data source.
-Allow users to choose common coins and enter any CoinGecko coin id manually.
+Use Binance klines as the default market data source. Keep CoinGecko as a fallback.
+Allow users to choose common Binance symbols and enter any CoinGecko coin id manually for fallback mode.
 ```
 
 ## If Lovable asks for code
@@ -59,11 +59,12 @@ async function predict(symbol: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      symbol,
+      symbol: "BTCUSDT",
+      data_source: "binance",
+      interval: "1h",
+      days: 30,
       coin_id: "bitcoin",
       vs_currency: "usd",
-      days: 30,
-      data_source: "coingecko",
     }),
   });
 

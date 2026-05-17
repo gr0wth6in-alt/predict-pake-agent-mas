@@ -13,6 +13,7 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
+from trading_agent.data.binance_feed import DEFAULT_INTERVAL, DEFAULT_LIMIT, limit_for_days, load_binance_klines
 from trading_agent.data.coingecko_feed import (
     DEFAULT_DAYS,
     DEFAULT_VS_CURRENCY,
@@ -52,13 +53,15 @@ class CandlePayload(BaseModel):
 
 
 class MarketRequest(BaseModel):
-    symbol: str = "BTCUSD"
+    symbol: str = "BTCUSDT"
     candles: list[CandlePayload] | None = None
     csv_path: str | None = None
-    data_source: str = "coingecko"
+    data_source: str = "binance"
     coin_id: str | None = None
     vs_currency: str = DEFAULT_VS_CURRENCY
     days: int = Field(default=DEFAULT_DAYS, ge=1, le=365)
+    interval: str = DEFAULT_INTERVAL
+    limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=1000)
     model_path: str | None = None
     cash: float | None = Field(default=None, gt=0)
 
@@ -93,11 +96,40 @@ def model_status() -> ModelStatusResponse:
 
 @app.get("/market/ohlc")
 def market_ohlc(
-    symbol: str = "BTCUSD",
+    symbol: str = "BTCUSDT",
     coin_id: str | None = None,
     vs_currency: str = DEFAULT_VS_CURRENCY,
     days: int = DEFAULT_DAYS,
+    data_source: str = "binance",
+    interval: str = DEFAULT_INTERVAL,
+    limit: int = DEFAULT_LIMIT,
 ) -> dict[str, object]:
+    if data_source.lower() == "binance":
+        try:
+            candles = load_binance_klines(
+                symbol=symbol,
+                interval=interval,
+                limit=limit_for_days(days, interval) if days else limit,
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        latest = candles[-1]
+        return {
+            "source": "binance",
+            "symbol": latest.symbol,
+            "interval": interval,
+            "candles": len(candles),
+            "latest": {
+                "timestamp": latest.timestamp.isoformat(),
+                "open": latest.open,
+                "high": latest.high,
+                "low": latest.low,
+                "close": latest.close,
+                "volume": latest.volume,
+            },
+        }
+
     try:
         candles = load_coingecko_ohlc(
             symbol=symbol,
@@ -244,6 +276,16 @@ def _resolve_candles(request: MarketRequest) -> list[Candle]:
             )
             for candle in request.candles
         ]
+
+    if request.data_source.lower() == "binance" and request.csv_path is None:
+        try:
+            return load_binance_klines(
+                symbol=request.symbol,
+                interval=request.interval,
+                limit=limit_for_days(request.days, request.interval) if request.days else request.limit,
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if request.data_source.lower() == "coingecko" and request.csv_path is None:
         try:

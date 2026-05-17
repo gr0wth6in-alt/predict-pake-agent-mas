@@ -11,6 +11,7 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
+from trading_agent.data.binance_feed import DEFAULT_INTERVAL, DEFAULT_LIMIT, limit_for_days, load_binance_klines
 from trading_agent.data.coingecko_feed import (
     DEFAULT_DAYS,
     DEFAULT_VS_CURRENCY,
@@ -78,10 +79,42 @@ def model_status() -> Any:
 
 @app.get("/market/ohlc")
 def market_ohlc() -> Any:
-    symbol = request.args.get("symbol", os.getenv("SYMBOL", "BTCUSD"))
+    symbol = request.args.get("symbol", os.getenv("SYMBOL", "BTCUSDT"))
+    data_source = request.args.get("data_source", "binance").lower()
+    interval = request.args.get("interval", DEFAULT_INTERVAL)
+    limit = int(request.args.get("limit", DEFAULT_LIMIT))
+    days = int(request.args.get("days", DEFAULT_DAYS))
+
+    if data_source == "binance":
+        try:
+            candles = load_binance_klines(
+                symbol=symbol,
+                interval=interval,
+                limit=limit_for_days(days, interval) if days else limit,
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        latest = candles[-1]
+        return jsonify(
+            {
+                "source": "binance",
+                "symbol": latest.symbol,
+                "interval": interval,
+                "candles": len(candles),
+                "latest": {
+                    "timestamp": latest.timestamp.isoformat(),
+                    "open": latest.open,
+                    "high": latest.high,
+                    "low": latest.low,
+                    "close": latest.close,
+                    "volume": latest.volume,
+                },
+            }
+        )
+
     coin_id = request.args.get("coin_id")
     vs_currency = request.args.get("vs_currency", DEFAULT_VS_CURRENCY)
-    days = int(request.args.get("days", DEFAULT_DAYS))
 
     try:
         candles = load_coingecko_ohlc(
@@ -238,8 +271,18 @@ def _json_payload() -> dict[str, Any]:
 
 
 def _resolve_candles(payload: dict[str, Any]) -> Any:
-    symbol = str(payload.get("symbol") or os.getenv("SYMBOL", "BTCUSD"))
-    data_source = str(payload.get("data_source") or "coingecko").lower()
+    symbol = str(payload.get("symbol") or os.getenv("SYMBOL", "BTCUSDT"))
+    data_source = str(payload.get("data_source") or "binance").lower()
+
+    if data_source == "binance" and not payload.get("csv_path"):
+        interval = str(payload.get("interval") or DEFAULT_INTERVAL)
+        days = int(payload.get("days") or DEFAULT_DAYS)
+        limit = int(payload.get("limit") or DEFAULT_LIMIT)
+        return load_binance_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=limit_for_days(days, interval) if days else limit,
+        )
 
     if data_source == "coingecko" and not payload.get("csv_path"):
         return load_coingecko_ohlc(

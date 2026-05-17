@@ -48,20 +48,21 @@ const sampleEquity = [
 ];
 
 const coinPresets = [
-  { label: "BTC", symbol: "BTCUSD", coinId: "bitcoin" },
-  { label: "ETH", symbol: "ETHUSD", coinId: "ethereum" },
-  { label: "SOL", symbol: "SOLUSD", coinId: "solana" },
-  { label: "BNB", symbol: "BNBUSD", coinId: "binancecoin" },
-  { label: "XRP", symbol: "XRPUSD", coinId: "ripple" },
-  { label: "DOGE", symbol: "DOGEUSD", coinId: "dogecoin" }
+  { label: "BTC", symbol: "BTCUSDT", coinId: "bitcoin" },
+  { label: "ETH", symbol: "ETHUSDT", coinId: "ethereum" },
+  { label: "SOL", symbol: "SOLUSDT", coinId: "solana" },
+  { label: "BNB", symbol: "BNBUSDT", coinId: "binancecoin" },
+  { label: "XRP", symbol: "XRPUSDT", coinId: "ripple" },
+  { label: "DOGE", symbol: "DOGEUSDT", coinId: "dogecoin" }
 ];
 
 type RunState = "idle" | "loading" | "ready" | "error";
 
 export function App() {
-  const [symbol, setSymbol] = useState("BTCUSD");
+  const [symbol, setSymbol] = useState("BTCUSDT");
   const [coinId, setCoinId] = useState("bitcoin");
   const [days, setDays] = useState(30);
+  const [dataSource, setDataSource] = useState<"binance" | "coingecko">("binance");
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
@@ -86,7 +87,8 @@ export function App() {
         coin_id: coinId,
         vs_currency: "usd",
         days,
-        data_source: "coingecko" as const
+        interval: "1h",
+        data_source: dataSource
       };
       const [model, nextPrediction, nextPaper, nextBacktest] = await Promise.all([
         getModelStatus(),
@@ -167,13 +169,29 @@ export function App() {
               </button>
             ))}
           </div>
+          <div className="preset-row" aria-label="Data source">
+            <button
+              className={dataSource === "binance" ? "preset active" : "preset"}
+              onClick={() => setDataSource("binance")}
+              type="button"
+            >
+              Binance
+            </button>
+            <button
+              className={dataSource === "coingecko" ? "preset active" : "preset"}
+              onClick={() => setDataSource("coingecko")}
+              type="button"
+            >
+              CoinGecko
+            </button>
+          </div>
           <div className="symbol-control">
             <label htmlFor="symbol">Symbol</label>
             <input
               id="symbol"
               value={symbol}
               onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-              placeholder="BTCUSD"
+              placeholder="BTCUSDT"
             />
           </div>
           <div className="symbol-control">
@@ -213,7 +231,7 @@ export function App() {
             icon={<Sparkles size={20} />}
             label="Prediction"
             value={prediction ? formatScore(prediction.direction_score) : "--"}
-            detail={prediction?.rationale || `CoinGecko coin: ${coinId}`}
+            detail={prediction?.rationale || `${dataSource} market data`}
           />
           <Metric
             icon={signalTone === "negative" ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
@@ -302,7 +320,7 @@ export function App() {
         </section>
 
         <section id="risk" className="system-strip">
-          <SystemItem icon={<Database size={18} />} label="Data" value="CoinGecko OHLC" />
+          <SystemItem icon={<Database size={18} />} label="Data" value={dataSource} />
           <SystemItem icon={<Cpu size={18} />} label="Horizon" value={prediction ? `${prediction.horizon_candles} candles` : "--"} />
           <SystemItem icon={<ShieldCheck size={18} />} label="Mode" value="paper only" />
         </section>

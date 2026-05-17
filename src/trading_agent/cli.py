@@ -7,6 +7,7 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
+from trading_agent.data.binance_feed import DEFAULT_INTERVAL, DEFAULT_LIMIT, limit_for_days, load_binance_klines
 from trading_agent.data.coingecko_feed import DEFAULT_DAYS, DEFAULT_VS_CURRENCY, load_coingecko_ohlc
 from trading_agent.data.csv_feed import load_candles
 from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
@@ -86,7 +87,13 @@ def run_paper_once(args: argparse.Namespace) -> None:
 
 def run_train(args: argparse.Namespace) -> None:
     try:
-        if args.data_source == "coingecko":
+        if args.data_source == "binance":
+            candles = load_binance_klines(
+                symbol=args.symbol,
+                interval=args.interval,
+                limit=limit_for_days(args.days, args.interval) if args.days else args.limit,
+            )
+        elif args.data_source == "coingecko":
             candles = load_coingecko_ohlc(
                 symbol=args.symbol,
                 coin_id=args.coin_id,
@@ -129,12 +136,14 @@ def make_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(required=True)
 
     train = subparsers.add_parser("train", help="Train a supervised prediction model")
-    train.add_argument("--data-source", choices=["csv", "coingecko"], default="csv")
+    train.add_argument("--data-source", choices=["csv", "coingecko", "binance"], default="csv")
     train.add_argument("--csv", default=None, help="Path to OHLCV CSV")
     train.add_argument("--symbol", default=load_settings().symbol)
     train.add_argument("--coin-id", default=None, help="CoinGecko coin id, for example bitcoin")
     train.add_argument("--vs-currency", default=DEFAULT_VS_CURRENCY)
     train.add_argument("--days", type=int, default=DEFAULT_DAYS)
+    train.add_argument("--interval", default=DEFAULT_INTERVAL)
+    train.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     train.add_argument("--output", default="models/latest_model.json")
     train.add_argument("--lookback", type=int, default=10)
     train.add_argument("--horizon", type=int, default=3)
