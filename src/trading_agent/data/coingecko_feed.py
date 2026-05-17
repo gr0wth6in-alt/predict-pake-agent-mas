@@ -66,7 +66,7 @@ def load_coingecko_ohlc(
         headers={"accept": "application/json"},
         timeout=timeout_seconds,
     )
-    response.raise_for_status()
+    _raise_for_status(response)
     payload = response.json()
 
     if not isinstance(payload, list) or not payload:
@@ -100,7 +100,7 @@ def search_coins(
             headers={"accept": "application/json"},
             timeout=timeout_seconds,
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         payload = response.json()
         raw_coins = payload.get("coins", []) if isinstance(payload, dict) else []
         coins = [
@@ -118,7 +118,7 @@ def search_coins(
             headers={"accept": "application/json"},
             timeout=timeout_seconds,
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         payload = response.json()
         raw_coins = payload if isinstance(payload, list) else []
         coins = [
@@ -149,3 +149,16 @@ def _parse_ohlc_row(row: object, symbol: str) -> Candle:
         close=float(close_price),
         volume=0.0,
     )
+
+
+def _raise_for_status(response: httpx.Response) -> None:
+    if response.status_code == 429:
+        retry_after = response.headers.get("retry-after")
+        wait_hint = f" Wait about {retry_after} seconds before retrying." if retry_after else ""
+        raise ValueError(
+            "CoinGecko rate limit reached (HTTP 429). "
+            "Try again later, reduce --days to 30, or train fewer coins at once."
+            f"{wait_hint}"
+        )
+
+    response.raise_for_status()

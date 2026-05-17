@@ -27,7 +27,7 @@ $env:PYTHONPATH="src"
 python -m unittest discover -s tests
 python scripts/generate_demo_prices.py
 python -m trading_agent.cli train --csv examples/mixed_training_prices.csv --symbol BTCUSD --output models/btcusd_demo_nb.json --label-threshold 0.005
-python -m trading_agent.cli train --data-source coingecko --symbol BTCUSD --coin-id bitcoin --days 365 --output models/btcusd_coingecko_nb.json --label-threshold 0.005
+python -m trading_agent.cli train --data-source coingecko --symbol BTCUSD --coin-id bitcoin --days 30 --output models/btcusd_coingecko_nb.json --label-threshold 0.005
 python -m trading_agent.cli backtest --csv examples/sample_prices.csv --symbol BTCUSD
 python -m trading_agent.cli backtest --csv examples/mixed_training_prices.csv --symbol BTCUSD --model-path models/btcusd_demo_nb.json
 python -m trading_agent.cli paper-once --csv examples/sample_prices.csv --symbol BTCUSD

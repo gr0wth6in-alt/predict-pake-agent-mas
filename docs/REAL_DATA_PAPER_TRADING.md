@@ -32,10 +32,12 @@ PYTHONPATH=src python -m trading_agent.cli train \
   --data-source coingecko \
   --symbol BTCUSD \
   --coin-id bitcoin \
-  --days 365 \
+  --days 30 \
   --output models/btcusd_coingecko_nb.json \
   --label-threshold 0.005
 ```
+
+If CoinGecko returns `HTTP 429 Too Many Requests`, wait a few minutes and retry with `--days 30`. The keyless public API is IP-rate-limited.
 
 ## Use real CoinGecko data from the API
 

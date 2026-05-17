@@ -85,17 +85,20 @@ def run_paper_once(args: argparse.Namespace) -> None:
 
 
 def run_train(args: argparse.Namespace) -> None:
-    if args.data_source == "coingecko":
-        candles = load_coingecko_ohlc(
-            symbol=args.symbol,
-            coin_id=args.coin_id,
-            vs_currency=args.vs_currency,
-            days=args.days,
-        )
-    else:
-        if args.csv is None:
-            raise SystemExit("--csv is required when --data-source csv")
-        candles = load_candles(Path(args.csv), args.symbol)
+    try:
+        if args.data_source == "coingecko":
+            candles = load_coingecko_ohlc(
+                symbol=args.symbol,
+                coin_id=args.coin_id,
+                vs_currency=args.vs_currency,
+                days=args.days,
+            )
+        else:
+            if args.csv is None:
+                raise SystemExit("--csv is required when --data-source csv")
+            candles = load_candles(Path(args.csv), args.symbol)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     config = TrainingConfig(
         lookback=args.lookback,
