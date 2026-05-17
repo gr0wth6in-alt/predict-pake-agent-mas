@@ -35,16 +35,16 @@ https://YOUR_USERNAME.pythonanywhere.com
 
 Create buttons for:
 - GET /model/status
-- GET /market/coins?query=bitcoin
-- GET /market/ohlc?symbol=BTCUSD&coin_id=bitcoin&days=30
-- POST /predict with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
-- POST /paper/run-once with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
-- POST /backtest with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
+- GET /market/ohlc?symbol=BTCUSDT&data_source=binance&days=30&interval=1h
+- POST /predict with JSON body {"symbol":"BTCUSDT","days":30,"interval":"1h","data_source":"binance"}
+- POST /paper/run-once with JSON body {"symbol":"BTCUSDT","days":30,"interval":"1h","data_source":"binance"}
+- POST /backtest with JSON body {"symbol":"BTCUSDT","days":30,"interval":"1h","data_source":"binance"}
 
 Show prediction confidence, direction_score, buy/sell/hold signal, risk approval, paper fill, and backtest return.
 Do not store broker keys in the frontend.
-Use Binance klines as the default market data source. Keep CoinGecko as a fallback.
-Allow users to choose common Binance symbols and enter any CoinGecko coin id manually for fallback mode.
+Use Binance klines as the only market data source in the frontend.
+Do not keep stale previous results after a failed fetch.
+Clear prediction, paper, and backtest panels when a new request starts.
 ```
 
 ## If Lovable asks for code
@@ -63,8 +63,6 @@ async function predict(symbol: string) {
       data_source: "binance",
       interval: "1h",
       days: 30,
-      coin_id: "bitcoin",
-      vs_currency: "usd",
     }),
   });
 

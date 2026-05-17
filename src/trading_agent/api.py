@@ -177,14 +177,19 @@ def market_coins(query: str = "", limit: int = 100) -> dict[str, object]:
 @app.post("/predict")
 def predict(request: MarketRequest) -> dict[str, object]:
     candles = _resolve_candles(request)
-    predictor = _build_predictor(request.model_path)
+    predictor = _build_predictor(request.model_path, request.symbol)
 
     try:
         prediction = predictor.predict(candles)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    latest = candles[-1]
     return {
+        "market_source": request.data_source.lower(),
+        "candle_count": len(candles),
+        "latest_price": latest.close,
+        "latest_timestamp": latest.timestamp.isoformat(),
         "symbol": prediction.symbol,
         "direction_score": prediction.direction_score,
         "confidence": prediction.confidence,
@@ -197,7 +202,7 @@ def predict(request: MarketRequest) -> dict[str, object]:
 def paper_run_once(request: MarketRequest) -> dict[str, object]:
     settings = load_settings()
     candles = _resolve_candles(request)
-    predictor = _build_predictor(request.model_path)
+    predictor = _build_predictor(request.model_path, request.symbol)
     broker = PaperBroker(cash=request.cash if request.cash is not None else settings.initial_cash)
     agent = TradingAgent(
         predictor=predictor,
@@ -211,7 +216,12 @@ def paper_run_once(request: MarketRequest) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    latest = candles[-1]
     return {
+        "market_source": request.data_source.lower(),
+        "candle_count": len(candles),
+        "latest_price": latest.close,
+        "latest_timestamp": latest.timestamp.isoformat(),
         "signal": {
             "symbol": decision.signal.symbol,
             "side": decision.signal.side.value,
@@ -241,7 +251,7 @@ def backtest(request: MarketRequest) -> dict[str, object]:
     settings = load_settings()
     candles = _resolve_candles(request)
     engine = BacktestEngine(
-        predictor=_build_predictor(request.model_path),
+        predictor=_build_predictor(request.model_path, request.symbol),
         strategy=_build_strategy(),
         risk_manager=_build_risk_manager(),
         starting_cash=request.cash if request.cash is not None else settings.initial_cash,
@@ -252,7 +262,12 @@ def backtest(request: MarketRequest) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    latest = candles[-1]
     return {
+        "market_source": request.data_source.lower(),
+        "candle_count": len(candles),
+        "latest_price": latest.close,
+        "latest_timestamp": latest.timestamp.isoformat(),
         "starting_cash": result.starting_cash,
         "ending_equity": result.ending_equity,
         "total_return_pct": result.total_return_pct,
@@ -305,11 +320,13 @@ def _resolve_candles(request: MarketRequest) -> list[Candle]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _build_predictor(model_path: str | None) -> Predictor:
+def _build_predictor(model_path: str | None, symbol: str | None = None) -> Predictor:
     settings = load_settings()
     resolved_model_path = Path(model_path) if model_path else _default_model_path()
     if resolved_model_path.exists():
-        return TrainedModelPredictor.load(resolved_model_path)
+        trained_predictor = TrainedModelPredictor.load(resolved_model_path)
+        if symbol is None or trained_predictor.model.symbol.upper() == symbol.upper():
+            return trained_predictor
 
     return MovingAverageMomentumPredictor(
         short_window=settings.prediction_short_window,

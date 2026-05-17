@@ -172,12 +172,17 @@ def predict() -> Any:
     payload = _json_payload()
     try:
         candles = _resolve_candles(payload)
-        prediction = _build_predictor(payload.get("model_path")).predict(candles)
+        prediction = _build_predictor(payload.get("model_path"), candles[-1].symbol).predict(candles)
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
+    latest = candles[-1]
     return jsonify(
         {
+            "market_source": str(payload.get("data_source") or "binance").lower(),
+            "candle_count": len(candles),
+            "latest_price": latest.close,
+            "latest_timestamp": latest.timestamp.isoformat(),
             "symbol": prediction.symbol,
             "direction_score": prediction.direction_score,
             "confidence": prediction.confidence,
@@ -196,7 +201,7 @@ def paper_run_once() -> Any:
         candles = _resolve_candles(payload)
         broker = PaperBroker(cash=float(payload.get("cash") or settings.initial_cash))
         agent = TradingAgent(
-            predictor=_build_predictor(payload.get("model_path")),
+            predictor=_build_predictor(payload.get("model_path"), candles[-1].symbol),
             strategy=_build_strategy(),
             risk_manager=_build_risk_manager(),
             broker=broker,
@@ -205,6 +210,7 @@ def paper_run_once() -> Any:
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
+    latest = candles[-1]
     fill = None
     if decision.fill is not None:
         fill = {
@@ -218,6 +224,10 @@ def paper_run_once() -> Any:
 
     return jsonify(
         {
+            "market_source": str(payload.get("data_source") or "binance").lower(),
+            "candle_count": len(candles),
+            "latest_price": latest.close,
+            "latest_timestamp": latest.timestamp.isoformat(),
             "signal": {
                 "symbol": decision.signal.symbol,
                 "side": decision.signal.side.value,
@@ -242,7 +252,7 @@ def backtest() -> Any:
     try:
         candles = _resolve_candles(payload)
         engine = BacktestEngine(
-            predictor=_build_predictor(payload.get("model_path")),
+            predictor=_build_predictor(payload.get("model_path"), candles[-1].symbol),
             strategy=_build_strategy(),
             risk_manager=_build_risk_manager(),
             starting_cash=float(payload.get("cash") or settings.initial_cash),
@@ -251,8 +261,13 @@ def backtest() -> Any:
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
+    latest = candles[-1]
     return jsonify(
         {
+            "market_source": str(payload.get("data_source") or "binance").lower(),
+            "candle_count": len(candles),
+            "latest_price": latest.close,
+            "latest_timestamp": latest.timestamp.isoformat(),
             "starting_cash": result.starting_cash,
             "ending_equity": result.ending_equity,
             "total_return_pct": result.total_return_pct,
@@ -296,11 +311,13 @@ def _resolve_candles(payload: dict[str, Any]) -> Any:
     return load_candles(csv_path, symbol)
 
 
-def _build_predictor(model_path: str | None) -> Predictor:
+def _build_predictor(model_path: str | None, symbol: str | None = None) -> Predictor:
     settings = load_settings()
     resolved_model_path = Path(model_path) if model_path else _default_model_path()
     if resolved_model_path.exists():
-        return TrainedModelPredictor.load(resolved_model_path)
+        trained_predictor = TrainedModelPredictor.load(resolved_model_path)
+        if symbol is None or trained_predictor.model.symbol.upper() == symbol.upper():
+            return trained_predictor
 
     return MovingAverageMomentumPredictor(
         short_window=settings.prediction_short_window,

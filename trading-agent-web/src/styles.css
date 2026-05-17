@@ -341,6 +341,16 @@ h3 {
   height: 330px;
 }
 
+.empty-chart {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  border: 1px dashed #244044;
+  border-radius: 8px;
+  color: #8da4a6;
+  text-align: center;
+}
+
 .decision-panel {
   display: grid;
   align-content: start;

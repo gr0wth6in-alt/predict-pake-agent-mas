@@ -38,31 +38,20 @@ import {
   runPaperOnce
 } from "./lib/api";
 
-const sampleEquity = [
-  { label: "01", equity: 10000 },
-  { label: "04", equity: 10480 },
-  { label: "08", equity: 10190 },
-  { label: "12", equity: 10960 },
-  { label: "16", equity: 11240 },
-  { label: "20", equity: 11850 }
-];
-
 const coinPresets = [
-  { label: "BTC", symbol: "BTCUSDT", coinId: "bitcoin" },
-  { label: "ETH", symbol: "ETHUSDT", coinId: "ethereum" },
-  { label: "SOL", symbol: "SOLUSDT", coinId: "solana" },
-  { label: "BNB", symbol: "BNBUSDT", coinId: "binancecoin" },
-  { label: "XRP", symbol: "XRPUSDT", coinId: "ripple" },
-  { label: "DOGE", symbol: "DOGEUSDT", coinId: "dogecoin" }
+  { label: "BTC", symbol: "BTCUSDT" },
+  { label: "ETH", symbol: "ETHUSDT" },
+  { label: "SOL", symbol: "SOLUSDT" },
+  { label: "BNB", symbol: "BNBUSDT" },
+  { label: "XRP", symbol: "XRPUSDT" },
+  { label: "DOGE", symbol: "DOGEUSDT" }
 ];
 
 type RunState = "idle" | "loading" | "ready" | "error";
 
 export function App() {
   const [symbol, setSymbol] = useState("BTCUSDT");
-  const [coinId, setCoinId] = useState("bitcoin");
   const [days, setDays] = useState(30);
-  const [dataSource, setDataSource] = useState<"binance" | "coingecko">("binance");
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
@@ -76,19 +65,28 @@ export function App() {
     if (side === "sell") return "negative";
     return "neutral";
   }, [paper]);
+  const equityData = useMemo(() => {
+    if (!backtest) return [];
+    return [
+      { label: "Start", equity: backtest.starting_cash },
+      { label: "End", equity: backtest.ending_equity }
+    ];
+  }, [backtest]);
 
   async function runFullCheck() {
     setStatus("loading");
     setError("");
+    setModelStatus(null);
+    setPrediction(null);
+    setPaper(null);
+    setBacktest(null);
 
     try {
       const coinRequest = {
         symbol,
-        coin_id: coinId,
-        vs_currency: "usd",
         days,
         interval: "1h",
-        data_source: dataSource
+        data_source: "binance" as const
       };
       const [model, nextPrediction, nextPaper, nextBacktest] = await Promise.all([
         getModelStatus(),
@@ -157,33 +155,16 @@ export function App() {
           <div className="preset-row" aria-label="Coin presets">
             {coinPresets.map((coin) => (
               <button
-                key={coin.coinId}
-                className={coinId === coin.coinId ? "preset active" : "preset"}
+                key={coin.symbol}
+                className={symbol === coin.symbol ? "preset active" : "preset"}
                 onClick={() => {
                   setSymbol(coin.symbol);
-                  setCoinId(coin.coinId);
                 }}
                 type="button"
               >
                 {coin.label}
               </button>
             ))}
-          </div>
-          <div className="preset-row" aria-label="Data source">
-            <button
-              className={dataSource === "binance" ? "preset active" : "preset"}
-              onClick={() => setDataSource("binance")}
-              type="button"
-            >
-              Binance
-            </button>
-            <button
-              className={dataSource === "coingecko" ? "preset active" : "preset"}
-              onClick={() => setDataSource("coingecko")}
-              type="button"
-            >
-              CoinGecko
-            </button>
           </div>
           <div className="symbol-control">
             <label htmlFor="symbol">Symbol</label>
@@ -195,15 +176,6 @@ export function App() {
             />
           </div>
           <div className="symbol-control">
-            <label htmlFor="coinId">CoinGecko</label>
-            <input
-              id="coinId"
-              value={coinId}
-              onChange={(event) => setCoinId(event.target.value.toLowerCase())}
-              placeholder="bitcoin"
-            />
-          </div>
-          <div className="symbol-control compact">
             <label htmlFor="days">Days</label>
             <input
               id="days"
@@ -231,7 +203,7 @@ export function App() {
             icon={<Sparkles size={20} />}
             label="Prediction"
             value={prediction ? formatScore(prediction.direction_score) : "--"}
-            detail={prediction?.rationale || `${dataSource} market data`}
+            detail={prediction?.rationale || "Binance klines only"}
           />
           <Metric
             icon={signalTone === "negative" ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
@@ -248,9 +220,13 @@ export function App() {
           />
           <Metric
             icon={<CircleDollarSign size={20} />}
-            label="Backtest"
-            value={backtest ? toPercent(backtest.total_return_pct / 100) : "--"}
-            detail={backtest ? `${backtest.fills} fills from demo data` : "No backtest yet"}
+            label="Latest Price"
+            value={backtest?.latest_price ? currency(backtest.latest_price) : "--"}
+            detail={
+              backtest
+                ? `${toPercent(backtest.total_return_pct / 100)} backtest, ${backtest.fills} fills`
+                : "Waiting for Binance data"
+            }
           />
         </section>
 
@@ -259,39 +235,45 @@ export function App() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Equity curve</p>
-                <h3>{backtest ? "Latest demo backtest" : "Preview trend"}</h3>
+                <h3>{backtest ? `${symbol} paper backtest` : "Run Binance backtest"}</h3>
               </div>
               <BarChart3 size={20} aria-hidden="true" />
             </div>
             <div className="chart-wrap">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={sampleEquity}>
-                  <defs>
-                    <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#27d7a2" stopOpacity={0.42} />
-                      <stop offset="95%" stopColor="#27d7a2" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#1c3032" strokeDasharray="3 6" vertical={false} />
-                  <XAxis dataKey="label" stroke="#8da4a6" tickLine={false} axisLine={false} />
-                  <YAxis stroke="#8da4a6" tickLine={false} axisLine={false} width={52} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#0d191c",
-                      border: "1px solid #244044",
-                      borderRadius: 8,
-                      color: "#eef7f5"
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="equity"
-                    stroke="#27d7a2"
-                    strokeWidth={3}
-                    fill="url(#equityFill)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {equityData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={equityData}>
+                    <defs>
+                      <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#27d7a2" stopOpacity={0.42} />
+                        <stop offset="95%" stopColor="#27d7a2" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#1c3032" strokeDasharray="3 6" vertical={false} />
+                    <XAxis dataKey="label" stroke="#8da4a6" tickLine={false} axisLine={false} />
+                    <YAxis stroke="#8da4a6" tickLine={false} axisLine={false} width={52} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#0d191c",
+                        border: "1px solid #244044",
+                        borderRadius: 8,
+                        color: "#eef7f5"
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="equity"
+                      stroke="#27d7a2"
+                      strokeWidth={3}
+                      fill="url(#equityFill)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="empty-chart">
+                  Run the agent to load live Binance candles.
+                </div>
+              )}
             </div>
           </div>
 
@@ -320,7 +302,7 @@ export function App() {
         </section>
 
         <section id="risk" className="system-strip">
-          <SystemItem icon={<Database size={18} />} label="Data" value={dataSource} />
+          <SystemItem icon={<Database size={18} />} label="Data" value="Binance klines" />
           <SystemItem icon={<Cpu size={18} />} label="Horizon" value={prediction ? `${prediction.horizon_candles} candles` : "--"} />
           <SystemItem icon={<ShieldCheck size={18} />} label="Mode" value="paper only" />
         </section>

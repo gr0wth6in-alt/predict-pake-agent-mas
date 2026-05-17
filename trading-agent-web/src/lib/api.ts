@@ -1,4 +1,8 @@
 export type Prediction = {
+  market_source?: string;
+  candle_count?: number;
+  latest_price?: number;
+  latest_timestamp?: string;
   symbol: string;
   direction_score: number;
   confidence: number;
@@ -7,6 +11,10 @@ export type Prediction = {
 };
 
 export type PaperRun = {
+  market_source?: string;
+  candle_count?: number;
+  latest_price?: number;
+  latest_timestamp?: string;
   signal: {
     symbol: string;
     side: "buy" | "sell" | "hold";
@@ -29,6 +37,10 @@ export type PaperRun = {
 };
 
 export type Backtest = {
+  market_source?: string;
+  candle_count?: number;
+  latest_price?: number;
+  latest_timestamp?: string;
   starting_cash: number;
   ending_equity: number;
   total_return_pct: number;
@@ -54,7 +66,7 @@ export type CoinRequest = {
   days: number;
   interval?: string;
   limit?: number;
-  data_source: "binance" | "coingecko";
+  data_source: "binance";
 };
 
 const fallbackUrl = "https://YOUR_USERNAME.pythonanywhere.com";
