@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -12,6 +13,12 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
+from trading_agent.data.coingecko_feed import (
+    DEFAULT_DAYS,
+    DEFAULT_VS_CURRENCY,
+    load_coingecko_ohlc,
+    search_coins,
+)
 from trading_agent.data.csv_feed import load_candles
 from trading_agent.models import Candle
 from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
@@ -48,6 +55,10 @@ class MarketRequest(BaseModel):
     symbol: str = "BTCUSD"
     candles: list[CandlePayload] | None = None
     csv_path: str | None = None
+    data_source: str = "coingecko"
+    coin_id: str | None = None
+    vs_currency: str = DEFAULT_VS_CURRENCY
+    days: int = Field(default=DEFAULT_DAYS, ge=1, le=365)
     model_path: str | None = None
     cash: float | None = Field(default=None, gt=0)
 
@@ -78,6 +89,57 @@ def model_status() -> ModelStatusResponse:
     exists = model_path.exists()
     message = "model is ready" if exists else "model file is missing; train before using ML mode"
     return ModelStatusResponse(model_path=str(model_path), exists=exists, message=message)
+
+
+@app.get("/market/ohlc")
+def market_ohlc(
+    symbol: str = "BTCUSD",
+    coin_id: str | None = None,
+    vs_currency: str = DEFAULT_VS_CURRENCY,
+    days: int = DEFAULT_DAYS,
+) -> dict[str, object]:
+    try:
+        candles = load_coingecko_ohlc(
+            symbol=symbol,
+            coin_id=coin_id,
+            vs_currency=vs_currency,
+            days=days,
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    latest = candles[-1]
+    return {
+        "source": "coingecko",
+        "symbol": latest.symbol,
+        "coin_id": coin_id,
+        "vs_currency": vs_currency,
+        "days": days,
+        "candles": len(candles),
+        "latest": {
+            "timestamp": latest.timestamp.isoformat(),
+            "open": latest.open,
+            "high": latest.high,
+            "low": latest.low,
+            "close": latest.close,
+            "volume": latest.volume,
+        },
+    }
+
+
+@app.get("/market/coins")
+def market_coins(query: str = "", limit: int = 100) -> dict[str, object]:
+    try:
+        coins = search_coins(query=query, limit=max(1, min(limit, 250)))
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "source": "coingecko",
+        "query": query,
+        "count": len(coins),
+        "coins": coins,
+    }
 
 
 @app.post("/predict")
@@ -182,6 +244,17 @@ def _resolve_candles(request: MarketRequest) -> list[Candle]:
             )
             for candle in request.candles
         ]
+
+    if request.data_source.lower() == "coingecko" and request.csv_path is None:
+        try:
+            return load_coingecko_ohlc(
+                symbol=request.symbol,
+                coin_id=request.coin_id,
+                vs_currency=request.vs_currency,
+                days=request.days,
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     csv_path = Path(request.csv_path) if request.csv_path else _default_csv_path()
     try:

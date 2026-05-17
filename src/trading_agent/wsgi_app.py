@@ -11,6 +11,12 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
+from trading_agent.data.coingecko_feed import (
+    DEFAULT_DAYS,
+    DEFAULT_VS_CURRENCY,
+    load_coingecko_ohlc,
+    search_coins,
+)
 from trading_agent.data.csv_feed import load_candles
 from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
 from trading_agent.prediction.ml import TrainedModelPredictor
@@ -66,6 +72,64 @@ def model_status() -> Any:
             "model_path": str(model_path),
             "exists": model_path.exists(),
             "message": "model is ready" if model_path.exists() else "model file is missing",
+        }
+    )
+
+
+@app.get("/market/ohlc")
+def market_ohlc() -> Any:
+    symbol = request.args.get("symbol", os.getenv("SYMBOL", "BTCUSD"))
+    coin_id = request.args.get("coin_id")
+    vs_currency = request.args.get("vs_currency", DEFAULT_VS_CURRENCY)
+    days = int(request.args.get("days", DEFAULT_DAYS))
+
+    try:
+        candles = load_coingecko_ohlc(
+            symbol=symbol,
+            coin_id=coin_id,
+            vs_currency=vs_currency,
+            days=days,
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    latest = candles[-1]
+    return jsonify(
+        {
+            "source": "coingecko",
+            "symbol": latest.symbol,
+            "coin_id": coin_id,
+            "vs_currency": vs_currency,
+            "days": days,
+            "candles": len(candles),
+            "latest": {
+                "timestamp": latest.timestamp.isoformat(),
+                "open": latest.open,
+                "high": latest.high,
+                "low": latest.low,
+                "close": latest.close,
+                "volume": latest.volume,
+            },
+        }
+    )
+
+
+@app.get("/market/coins")
+def market_coins() -> Any:
+    query = request.args.get("query", "")
+    limit = max(1, min(int(request.args.get("limit", 100)), 250))
+
+    try:
+        coins = search_coins(query=query, limit=limit)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(
+        {
+            "source": "coingecko",
+            "query": query,
+            "count": len(coins),
+            "coins": coins,
         }
     )
 
@@ -175,6 +239,16 @@ def _json_payload() -> dict[str, Any]:
 
 def _resolve_candles(payload: dict[str, Any]) -> Any:
     symbol = str(payload.get("symbol") or os.getenv("SYMBOL", "BTCUSD"))
+    data_source = str(payload.get("data_source") or "coingecko").lower()
+
+    if data_source == "coingecko" and not payload.get("csv_path"):
+        return load_coingecko_ohlc(
+            symbol=symbol,
+            coin_id=payload.get("coin_id"),
+            vs_currency=str(payload.get("vs_currency") or DEFAULT_VS_CURRENCY),
+            days=int(payload.get("days") or DEFAULT_DAYS),
+        )
+
     csv_path = Path(str(payload.get("csv_path"))) if payload.get("csv_path") else _default_csv_path()
     return load_candles(csv_path, symbol)
 

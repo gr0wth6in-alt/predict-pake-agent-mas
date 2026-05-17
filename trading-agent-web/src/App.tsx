@@ -47,10 +47,21 @@ const sampleEquity = [
   { label: "20", equity: 11850 }
 ];
 
+const coinPresets = [
+  { label: "BTC", symbol: "BTCUSD", coinId: "bitcoin" },
+  { label: "ETH", symbol: "ETHUSD", coinId: "ethereum" },
+  { label: "SOL", symbol: "SOLUSD", coinId: "solana" },
+  { label: "BNB", symbol: "BNBUSD", coinId: "binancecoin" },
+  { label: "XRP", symbol: "XRPUSD", coinId: "ripple" },
+  { label: "DOGE", symbol: "DOGEUSD", coinId: "dogecoin" }
+];
+
 type RunState = "idle" | "loading" | "ready" | "error";
 
 export function App() {
   const [symbol, setSymbol] = useState("BTCUSD");
+  const [coinId, setCoinId] = useState("bitcoin");
+  const [days, setDays] = useState(30);
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
@@ -70,11 +81,18 @@ export function App() {
     setError("");
 
     try {
+      const coinRequest = {
+        symbol,
+        coin_id: coinId,
+        vs_currency: "usd",
+        days,
+        data_source: "coingecko" as const
+      };
       const [model, nextPrediction, nextPaper, nextBacktest] = await Promise.all([
         getModelStatus(),
-        getPrediction(symbol),
-        runPaperOnce(symbol),
-        runBacktest(symbol)
+        getPrediction(coinRequest),
+        runPaperOnce(coinRequest),
+        runBacktest(coinRequest)
       ]);
       setModelStatus(model);
       setPrediction(nextPrediction);
@@ -134,6 +152,21 @@ export function App() {
         </header>
 
         <section id="run" className="command-band">
+          <div className="preset-row" aria-label="Coin presets">
+            {coinPresets.map((coin) => (
+              <button
+                key={coin.coinId}
+                className={coinId === coin.coinId ? "preset active" : "preset"}
+                onClick={() => {
+                  setSymbol(coin.symbol);
+                  setCoinId(coin.coinId);
+                }}
+                type="button"
+              >
+                {coin.label}
+              </button>
+            ))}
+          </div>
           <div className="symbol-control">
             <label htmlFor="symbol">Symbol</label>
             <input
@@ -141,6 +174,26 @@ export function App() {
               value={symbol}
               onChange={(event) => setSymbol(event.target.value.toUpperCase())}
               placeholder="BTCUSD"
+            />
+          </div>
+          <div className="symbol-control">
+            <label htmlFor="coinId">CoinGecko</label>
+            <input
+              id="coinId"
+              value={coinId}
+              onChange={(event) => setCoinId(event.target.value.toLowerCase())}
+              placeholder="bitcoin"
+            />
+          </div>
+          <div className="symbol-control compact">
+            <label htmlFor="days">Days</label>
+            <input
+              id="days"
+              value={days}
+              min={1}
+              max={365}
+              type="number"
+              onChange={(event) => setDays(Number(event.target.value))}
             />
           </div>
           <button className="primary-action" onClick={runFullCheck} disabled={status === "loading"}>
@@ -160,7 +213,7 @@ export function App() {
             icon={<Sparkles size={20} />}
             label="Prediction"
             value={prediction ? formatScore(prediction.direction_score) : "--"}
-            detail={prediction?.rationale || "Waiting for model output"}
+            detail={prediction?.rationale || `CoinGecko coin: ${coinId}`}
           />
           <Metric
             icon={signalTone === "negative" ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
@@ -249,7 +302,7 @@ export function App() {
         </section>
 
         <section id="risk" className="system-strip">
-          <SystemItem icon={<Database size={18} />} label="Model file" value={modelStatus?.exists ? "loaded" : "checking"} />
+          <SystemItem icon={<Database size={18} />} label="Data" value="CoinGecko OHLC" />
           <SystemItem icon={<Cpu size={18} />} label="Horizon" value={prediction ? `${prediction.horizon_candles} candles` : "--"} />
           <SystemItem icon={<ShieldCheck size={18} />} label="Mode" value="paper only" />
         </section>

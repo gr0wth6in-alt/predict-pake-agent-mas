@@ -7,6 +7,7 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
+from trading_agent.data.coingecko_feed import DEFAULT_DAYS, DEFAULT_VS_CURRENCY, load_coingecko_ohlc
 from trading_agent.data.csv_feed import load_candles
 from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
 from trading_agent.prediction.ml import TrainedModelPredictor
@@ -84,7 +85,18 @@ def run_paper_once(args: argparse.Namespace) -> None:
 
 
 def run_train(args: argparse.Namespace) -> None:
-    candles = load_candles(Path(args.csv), args.symbol)
+    if args.data_source == "coingecko":
+        candles = load_coingecko_ohlc(
+            symbol=args.symbol,
+            coin_id=args.coin_id,
+            vs_currency=args.vs_currency,
+            days=args.days,
+        )
+    else:
+        if args.csv is None:
+            raise SystemExit("--csv is required when --data-source csv")
+        candles = load_candles(Path(args.csv), args.symbol)
+
     config = TrainingConfig(
         lookback=args.lookback,
         horizon=args.horizon,
@@ -114,8 +126,12 @@ def make_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(required=True)
 
     train = subparsers.add_parser("train", help="Train a supervised prediction model")
-    train.add_argument("--csv", required=True, help="Path to OHLCV CSV")
+    train.add_argument("--data-source", choices=["csv", "coingecko"], default="csv")
+    train.add_argument("--csv", default=None, help="Path to OHLCV CSV")
     train.add_argument("--symbol", default=load_settings().symbol)
+    train.add_argument("--coin-id", default=None, help="CoinGecko coin id, for example bitcoin")
+    train.add_argument("--vs-currency", default=DEFAULT_VS_CURRENCY)
+    train.add_argument("--days", type=int, default=DEFAULT_DAYS)
     train.add_argument("--output", default="models/latest_model.json")
     train.add_argument("--lookback", type=int, default=10)
     train.add_argument("--horizon", type=int, default=3)

@@ -5,6 +5,7 @@ Use this checklist to turn the starter into your own autonomous AI trading agent
 ## 1. Data
 
 - Add a real historical data adapter under `src/trading_agent/data/`.
+- The starter now includes a CoinGecko OHLC adapter for real crypto data.
 - Normalize every source into the `Candle` model.
 - Store raw data separately from processed features.
 - Add tests for missing candles, duplicate timestamps, bad prices, and time zone handling.
@@ -19,6 +20,7 @@ Use this checklist to turn the starter into your own autonomous AI trading agent
 ## 3. Strategy
 
 - Keep strategy logic separate from prediction logic.
+- Treat model `rationale` as an audit summary, not a guarantee.
 - Add slippage, fees, spread, and latency assumptions to backtests.
 - Compare the strategy against a no-trade baseline and a buy-and-hold baseline.
 

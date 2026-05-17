@@ -18,7 +18,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json(), {"status": "ok"})
 
     def test_predict_uses_default_demo_data(self) -> None:
-        response = self.client.post("/predict", json={"symbol": "BTCUSD"})
+        response = self.client.post(
+            "/predict",
+            json={
+                "symbol": "BTCUSD",
+                "data_source": "csv",
+                "csv_path": "examples/mixed_training_prices.csv",
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -26,7 +33,14 @@ class ApiTests(unittest.TestCase):
         self.assertIn("confidence", payload)
 
     def test_backtest_uses_default_demo_data(self) -> None:
-        response = self.client.post("/backtest", json={"symbol": "BTCUSD"})
+        response = self.client.post(
+            "/backtest",
+            json={
+                "symbol": "BTCUSD",
+                "data_source": "csv",
+                "csv_path": "examples/mixed_training_prices.csv",
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()

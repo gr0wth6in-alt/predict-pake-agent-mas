@@ -16,7 +16,14 @@ class WsgiAppTests(unittest.TestCase):
         self.assertEqual(response.json, {"status": "ok"})
 
     def test_predict(self) -> None:
-        response = self.client.post("/predict", json={"symbol": "BTCUSD"})
+        response = self.client.post(
+            "/predict",
+            json={
+                "symbol": "BTCUSD",
+                "data_source": "csv",
+                "csv_path": "examples/mixed_training_prices.csv",
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["symbol"], "BTCUSD")

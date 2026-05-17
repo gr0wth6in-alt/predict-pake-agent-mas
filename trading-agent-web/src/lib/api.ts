@@ -47,6 +47,14 @@ export type ModelStatus = {
   message: string;
 };
 
+export type CoinRequest = {
+  symbol: string;
+  coin_id: string;
+  vs_currency: string;
+  days: number;
+  data_source: "coingecko";
+};
+
 const fallbackUrl = "https://YOUR_USERNAME.pythonanywhere.com";
 
 export const apiBaseUrl =
@@ -75,14 +83,14 @@ export async function getModelStatus(): Promise<ModelStatus> {
   return response.json() as Promise<ModelStatus>;
 }
 
-export function getPrediction(symbol: string): Promise<Prediction> {
-  return postJson<Prediction>("/predict", { symbol });
+export function getPrediction(request: CoinRequest): Promise<Prediction> {
+  return postJson<Prediction>("/predict", request);
 }
 
-export function runPaperOnce(symbol: string): Promise<PaperRun> {
-  return postJson<PaperRun>("/paper/run-once", { symbol });
+export function runPaperOnce(request: CoinRequest): Promise<PaperRun> {
+  return postJson<PaperRun>("/paper/run-once", request);
 }
 
-export function runBacktest(symbol: string): Promise<Backtest> {
-  return postJson<Backtest>("/backtest", { symbol });
+export function runBacktest(request: CoinRequest): Promise<Backtest> {
+  return postJson<Backtest>("/backtest", request);
 }

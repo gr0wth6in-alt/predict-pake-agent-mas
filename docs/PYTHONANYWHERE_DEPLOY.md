@@ -76,6 +76,8 @@ https://YOUR_USERNAME.pythonanywhere.com/model/status
 ```text
 GET  /health
 GET  /model/status
+GET  /market/coins
+GET  /market/ohlc
 POST /predict
 POST /paper/run-once
 POST /backtest
@@ -85,6 +87,10 @@ Example body for `/predict`:
 
 ```json
 {
-  "symbol": "BTCUSD"
+  "symbol": "BTCUSD",
+  "coin_id": "bitcoin",
+  "vs_currency": "usd",
+  "days": 30,
+  "data_source": "coingecko"
 }
 ```

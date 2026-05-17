@@ -35,12 +35,16 @@ https://YOUR_USERNAME.pythonanywhere.com
 
 Create buttons for:
 - GET /model/status
-- POST /predict with JSON body {"symbol":"BTCUSD"}
-- POST /paper/run-once with JSON body {"symbol":"BTCUSD"}
-- POST /backtest with JSON body {"symbol":"BTCUSD"}
+- GET /market/coins?query=bitcoin
+- GET /market/ohlc?symbol=BTCUSD&coin_id=bitcoin&days=30
+- POST /predict with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
+- POST /paper/run-once with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
+- POST /backtest with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
 
 Show prediction confidence, direction_score, buy/sell/hold signal, risk approval, paper fill, and backtest return.
 Do not store broker keys in the frontend.
+Use CoinGecko as the only market data source.
+Allow users to choose common coins and enter any CoinGecko coin id manually.
 ```
 
 ## If Lovable asks for code
@@ -54,7 +58,13 @@ async function predict(symbol: string) {
   const response = await fetch(`${API_BASE_URL}/predict`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ symbol }),
+    body: JSON.stringify({
+      symbol,
+      coin_id: "bitcoin",
+      vs_currency: "usd",
+      days: 30,
+      data_source: "coingecko",
+    }),
   });
 
   if (!response.ok) {
