@@ -21,6 +21,20 @@ from trading_agent.strategy.threshold import ThresholdStrategy
 app = Flask(__name__)
 
 
+@app.after_request
+def add_cors_headers(response: Any) -> Any:
+    response.headers["Access-Control-Allow-Origin"] = os.getenv("ALLOWED_ORIGINS", "*")
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
+@app.route("/", defaults={"path": ""}, methods=["OPTIONS"])
+@app.route("/<path:path>", methods=["OPTIONS"])
+def options_preflight(path: str) -> Any:
+    return "", 204
+
+
 @app.get("/")
 def root() -> Any:
     return jsonify(

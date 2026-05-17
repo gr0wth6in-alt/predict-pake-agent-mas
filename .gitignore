@@ -12,3 +12,7 @@ data/raw/
 data/processed/
 reports/
 models/tmp/
+trading-agent-web/node_modules/
+trading-agent-web/dist/
+*.rar
+*.zip

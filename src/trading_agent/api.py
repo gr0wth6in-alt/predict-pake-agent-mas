@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from trading_agent.agent import TradingAgent
@@ -24,6 +25,13 @@ app = FastAPI(
     title="Autonomous Trading Agent API",
     version="0.1.0",
     description="Paper-trading and backtesting API for the autonomous trading agent starter.",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("ALLOWED_ORIGINS", "*").split(","),
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
