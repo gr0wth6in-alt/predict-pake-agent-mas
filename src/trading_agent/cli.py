@@ -9,16 +9,25 @@ from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
 from trading_agent.data.csv_feed import load_candles
 from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
+from trading_agent.prediction.ml import TrainedModelPredictor
+from trading_agent.prediction.protocols import Predictor
 from trading_agent.risk.manager import RiskManager
 from trading_agent.strategy.threshold import ThresholdStrategy
+from trading_agent.training.dataset import TrainingConfig
+from trading_agent.training.trainer import train_and_save
 
 
-def build_components() -> tuple[MovingAverageMomentumPredictor, ThresholdStrategy, RiskManager]:
+def build_components(args: argparse.Namespace | None = None) -> tuple[Predictor, ThresholdStrategy, RiskManager]:
     settings = load_settings()
-    predictor = MovingAverageMomentumPredictor(
-        short_window=settings.prediction_short_window,
-        long_window=settings.prediction_long_window,
-    )
+    model_path = getattr(args, "model_path", None) if args is not None else None
+    if model_path is None:
+        predictor: Predictor = MovingAverageMomentumPredictor(
+            short_window=settings.prediction_short_window,
+            long_window=settings.prediction_long_window,
+        )
+    else:
+        predictor = TrainedModelPredictor.load(model_path)
+
     strategy = ThresholdStrategy(threshold=settings.prediction_threshold)
     risk_manager = RiskManager(
         max_position_fraction=settings.max_position_fraction,
@@ -33,7 +42,7 @@ def build_components() -> tuple[MovingAverageMomentumPredictor, ThresholdStrateg
 def run_backtest(args: argparse.Namespace) -> None:
     settings = load_settings()
     candles = load_candles(Path(args.csv), args.symbol)
-    predictor, strategy, risk_manager = build_components()
+    predictor, strategy, risk_manager = build_components(args)
     engine = BacktestEngine(
         predictor=predictor,
         strategy=strategy,
@@ -50,7 +59,7 @@ def run_backtest(args: argparse.Namespace) -> None:
 def run_paper_once(args: argparse.Namespace) -> None:
     settings = load_settings()
     candles = load_candles(Path(args.csv), args.symbol)
-    predictor, strategy, risk_manager = build_components()
+    predictor, strategy, risk_manager = build_components(args)
     broker = PaperBroker(cash=args.cash if args.cash is not None else settings.initial_cash)
     agent = TradingAgent(
         predictor=predictor,
@@ -74,20 +83,58 @@ def run_paper_once(args: argparse.Namespace) -> None:
         )
 
 
+def run_train(args: argparse.Namespace) -> None:
+    candles = load_candles(Path(args.csv), args.symbol)
+    config = TrainingConfig(
+        lookback=args.lookback,
+        horizon=args.horizon,
+        label_threshold=args.label_threshold,
+    )
+    result = train_and_save(
+        candles,
+        symbol=args.symbol,
+        config=config,
+        output_path=args.output,
+        train_fraction=args.train_fraction,
+    )
+
+    print(f"model_path={Path(args.output)}")
+    print(f"samples={result.sample_count}")
+    print(f"train_samples={result.train_count}")
+    print(f"test_samples={result.test_count}")
+    print(f"labels={result.label_distribution}")
+    print(f"train_accuracy={result.train_metrics.accuracy:.4f}")
+    print(f"test_accuracy={result.test_metrics.accuracy:.4f}")
+    for warning in result.warnings:
+        print(f"warning={warning}")
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autonomous trading agent starter CLI")
     subparsers = parser.add_subparsers(required=True)
+
+    train = subparsers.add_parser("train", help="Train a supervised prediction model")
+    train.add_argument("--csv", required=True, help="Path to OHLCV CSV")
+    train.add_argument("--symbol", default=load_settings().symbol)
+    train.add_argument("--output", default="models/latest_model.json")
+    train.add_argument("--lookback", type=int, default=10)
+    train.add_argument("--horizon", type=int, default=3)
+    train.add_argument("--label-threshold", type=float, default=0.01)
+    train.add_argument("--train-fraction", type=float, default=0.8)
+    train.set_defaults(func=run_train)
 
     backtest = subparsers.add_parser("backtest", help="Run a historical backtest")
     backtest.add_argument("--csv", required=True, help="Path to OHLCV CSV")
     backtest.add_argument("--symbol", default=load_settings().symbol)
     backtest.add_argument("--cash", type=float, default=None)
+    backtest.add_argument("--model-path", default=None, help="Use a trained JSON model")
     backtest.set_defaults(func=run_backtest)
 
     paper_once = subparsers.add_parser("paper-once", help="Run one paper trading decision")
     paper_once.add_argument("--csv", required=True, help="Path to OHLCV CSV")
     paper_once.add_argument("--symbol", default=load_settings().symbol)
     paper_once.add_argument("--cash", type=float, default=None)
+    paper_once.add_argument("--model-path", default=None, help="Use a trained JSON model")
     paper_once.set_defaults(func=run_paper_once)
 
     return parser

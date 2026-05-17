@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from trading_agent.broker.paper import Fill, PaperBroker
 from trading_agent.models import Candle, Signal
-from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
+from trading_agent.prediction.protocols import Predictor
 from trading_agent.risk.manager import RiskDecision, RiskManager
 from trading_agent.strategy.threshold import ThresholdStrategy
 
@@ -19,7 +19,7 @@ class AgentDecision:
 class TradingAgent:
     def __init__(
         self,
-        predictor: MovingAverageMomentumPredictor,
+        predictor: Predictor,
         strategy: ThresholdStrategy,
         risk_manager: RiskManager,
         broker: PaperBroker,

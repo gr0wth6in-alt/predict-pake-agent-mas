@@ -1,0 +1,121 @@
+{
+  "kind": "gaussian_naive_bayes_v1",
+  "symbol": "BTCUSD",
+  "trained_at": "2026-05-17T07:01:11.725965+00:00",
+  "feature_names": [
+    "return_1",
+    "return_3",
+    "return_5",
+    "return_10",
+    "sma_5_distance",
+    "sma_10_distance",
+    "sma_cross_5_10",
+    "volatility_5",
+    "volatility_10",
+    "volume_ratio_10",
+    "candle_body_pct",
+    "range_pct"
+  ],
+  "labels": [
+    "buy"
+  ],
+  "priors": {
+    "buy": 1.0
+  },
+  "means": {
+    "buy": [
+      0.008527427851740934,
+      0.02609682045878087,
+      0.04503755791303077,
+      0.09553508410165591,
+      0.017313231375469283,
+      0.040395623161803236,
+      0.022688870831286012,
+      0.00442407726114665,
+      0.0045707936822527665,
+      0.04040428412635942,
+      0.008527427851740934,
+      0.021586820947300897
+    ]
+  },
+  "variances": {
+    "buy": [
+      1.8796313754941208e-05,
+      1.5188745814052966e-05,
+      1.7227704919341326e-05,
+      5.410582611219127e-05,
+      3.933086698771007e-06,
+      7.702281368026112e-06,
+      2.0534241278937947e-06,
+      5.813452299584653e-07,
+      4.075689308900676e-08,
+      1.8432645999537595e-06,
+      1.8796313754941208e-05,
+      5.8273819406268e-06
+    ]
+  },
+  "training_config": {
+    "lookback": 10,
+    "horizon": 3,
+    "label_threshold": 0.01
+  },
+  "metrics": {
+    "train": {
+      "accuracy": 1.0,
+      "total": 13,
+      "correct": 13,
+      "confusion_matrix": {
+        "sell": {
+          "sell": 0,
+          "hold": 0,
+          "buy": 0
+        },
+        "hold": {
+          "sell": 0,
+          "hold": 0,
+          "buy": 0
+        },
+        "buy": {
+          "sell": 0,
+          "hold": 0,
+          "buy": 13
+        }
+      }
+    },
+    "test": {
+      "accuracy": 1.0,
+      "total": 4,
+      "correct": 4,
+      "confusion_matrix": {
+        "sell": {
+          "sell": 0,
+          "hold": 0,
+          "buy": 0
+        },
+        "hold": {
+          "sell": 0,
+          "hold": 0,
+          "buy": 0
+        },
+        "buy": {
+          "sell": 0,
+          "hold": 0,
+          "buy": 4
+        }
+      }
+    },
+    "sample_count": 17,
+    "train_count": 13,
+    "test_count": 4,
+    "label_distribution": {
+      "sell": 0,
+      "hold": 0,
+      "buy": 17
+    },
+    "warnings": [
+      "Only one label exists in the full dataset; use more varied market data.",
+      "Only one label exists in the training split; model will be biased.",
+      "Only one label exists in the test split; accuracy is not very informative."
+    ]
+  }
+}
