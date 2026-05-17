@@ -53,10 +53,10 @@ class CandlePayload(BaseModel):
 
 
 class MarketRequest(BaseModel):
-    symbol: str = "BTCUSDT"
+    symbol: str = "BTCUSD"
     candles: list[CandlePayload] | None = None
     csv_path: str | None = None
-    data_source: str = "binance"
+    data_source: str = "coingecko"
     coin_id: str | None = None
     vs_currency: str = DEFAULT_VS_CURRENCY
     days: int = Field(default=DEFAULT_DAYS, ge=1, le=365)
@@ -96,11 +96,11 @@ def model_status() -> ModelStatusResponse:
 
 @app.get("/market/ohlc")
 def market_ohlc(
-    symbol: str = "BTCUSDT",
+    symbol: str = "BTCUSD",
     coin_id: str | None = None,
     vs_currency: str = DEFAULT_VS_CURRENCY,
     days: int = DEFAULT_DAYS,
-    data_source: str = "binance",
+    data_source: str = "coingecko",
     interval: str = DEFAULT_INTERVAL,
     limit: int = DEFAULT_LIMIT,
 ) -> dict[str, object]:

@@ -39,18 +39,19 @@ import {
 } from "./lib/api";
 
 const coinPresets = [
-  { label: "BTC", symbol: "BTCUSDT" },
-  { label: "ETH", symbol: "ETHUSDT" },
-  { label: "SOL", symbol: "SOLUSDT" },
-  { label: "BNB", symbol: "BNBUSDT" },
-  { label: "XRP", symbol: "XRPUSDT" },
-  { label: "DOGE", symbol: "DOGEUSDT" }
+  { label: "BTC", symbol: "BTCUSD", coinId: "bitcoin" },
+  { label: "ETH", symbol: "ETHUSD", coinId: "ethereum" },
+  { label: "SOL", symbol: "SOLUSD", coinId: "solana" },
+  { label: "BNB", symbol: "BNBUSD", coinId: "binancecoin" },
+  { label: "XRP", symbol: "XRPUSD", coinId: "ripple" },
+  { label: "DOGE", symbol: "DOGEUSD", coinId: "dogecoin" }
 ];
 
 type RunState = "idle" | "loading" | "ready" | "error";
 
 export function App() {
-  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [symbol, setSymbol] = useState("BTCUSD");
+  const [coinId, setCoinId] = useState("bitcoin");
   const [days, setDays] = useState(30);
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState("");
@@ -84,9 +85,10 @@ export function App() {
     try {
       const coinRequest = {
         symbol,
+        coin_id: coinId,
+        vs_currency: "usd",
         days,
-        interval: "1h",
-        data_source: "binance" as const
+        data_source: "coingecko" as const
       };
       const [model, nextPrediction, nextPaper, nextBacktest] = await Promise.all([
         getModelStatus(),
@@ -155,10 +157,11 @@ export function App() {
           <div className="preset-row" aria-label="Coin presets">
             {coinPresets.map((coin) => (
               <button
-                key={coin.symbol}
+                key={coin.coinId}
                 className={symbol === coin.symbol ? "preset active" : "preset"}
                 onClick={() => {
                   setSymbol(coin.symbol);
+                  setCoinId(coin.coinId);
                 }}
                 type="button"
               >
@@ -172,10 +175,19 @@ export function App() {
               id="symbol"
               value={symbol}
               onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-              placeholder="BTCUSDT"
+              placeholder="BTCUSD"
             />
           </div>
           <div className="symbol-control">
+            <label htmlFor="coinId">Coin ID</label>
+            <input
+              id="coinId"
+              value={coinId}
+              onChange={(event) => setCoinId(event.target.value.toLowerCase())}
+              placeholder="bitcoin"
+            />
+          </div>
+          <div className="symbol-control compact">
             <label htmlFor="days">Days</label>
             <input
               id="days"
@@ -203,7 +215,7 @@ export function App() {
             icon={<Sparkles size={20} />}
             label="Prediction"
             value={prediction ? formatScore(prediction.direction_score) : "--"}
-            detail={prediction?.rationale || "Binance klines only"}
+            detail={prediction?.rationale || "CoinGecko real OHLC"}
           />
           <Metric
             icon={signalTone === "negative" ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
@@ -225,7 +237,7 @@ export function App() {
             detail={
               backtest
                 ? `${toPercent(backtest.total_return_pct / 100)} backtest, ${backtest.fills} fills`
-                : "Waiting for Binance data"
+                : "Waiting for CoinGecko data"
             }
           />
         </section>
@@ -235,7 +247,7 @@ export function App() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Equity curve</p>
-                <h3>{backtest ? `${symbol} paper backtest` : "Run Binance backtest"}</h3>
+                <h3>{backtest ? `${symbol} paper backtest` : "Run CoinGecko backtest"}</h3>
               </div>
               <BarChart3 size={20} aria-hidden="true" />
             </div>
@@ -271,7 +283,7 @@ export function App() {
                 </ResponsiveContainer>
               ) : (
                 <div className="empty-chart">
-                  Run the agent to load live Binance candles.
+                  Run the agent to load real CoinGecko candles.
                 </div>
               )}
             </div>
@@ -302,7 +314,7 @@ export function App() {
         </section>
 
         <section id="risk" className="system-strip">
-          <SystemItem icon={<Database size={18} />} label="Data" value="Binance klines" />
+          <SystemItem icon={<Database size={18} />} label="Data" value="CoinGecko OHLC" />
           <SystemItem icon={<Cpu size={18} />} label="Horizon" value={prediction ? `${prediction.horizon_candles} candles` : "--"} />
           <SystemItem icon={<ShieldCheck size={18} />} label="Mode" value="paper only" />
         </section>

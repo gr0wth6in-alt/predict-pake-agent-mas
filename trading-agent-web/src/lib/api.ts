@@ -61,12 +61,12 @@ export type ModelStatus = {
 
 export type CoinRequest = {
   symbol: string;
-  coin_id?: string;
-  vs_currency?: string;
+  coin_id: string;
+  vs_currency: string;
   days: number;
   interval?: string;
   limit?: number;
-  data_source: "binance";
+  data_source: "coingecko";
 };
 
 const fallbackUrl = "https://YOUR_USERNAME.pythonanywhere.com";

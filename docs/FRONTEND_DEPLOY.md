@@ -35,3 +35,4 @@ VITE_AGENT_API_BASE_URL=https://YOUR_USERNAME.pythonanywhere.com
 ```
 
 Replace `YOUR_USERNAME` with your PythonAnywhere username.
+This frontend is configured for CoinGecko data because Binance rejects PythonAnywhere with HTTP 451.

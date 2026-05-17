@@ -79,8 +79,8 @@ def model_status() -> Any:
 
 @app.get("/market/ohlc")
 def market_ohlc() -> Any:
-    symbol = request.args.get("symbol", os.getenv("SYMBOL", "BTCUSDT"))
-    data_source = request.args.get("data_source", "binance").lower()
+    symbol = request.args.get("symbol", os.getenv("SYMBOL", "BTCUSD"))
+    data_source = request.args.get("data_source", "coingecko").lower()
     interval = request.args.get("interval", DEFAULT_INTERVAL)
     limit = int(request.args.get("limit", DEFAULT_LIMIT))
     days = int(request.args.get("days", DEFAULT_DAYS))
@@ -179,7 +179,7 @@ def predict() -> Any:
     latest = candles[-1]
     return jsonify(
         {
-            "market_source": str(payload.get("data_source") or "binance").lower(),
+            "market_source": str(payload.get("data_source") or "coingecko").lower(),
             "candle_count": len(candles),
             "latest_price": latest.close,
             "latest_timestamp": latest.timestamp.isoformat(),
@@ -224,7 +224,7 @@ def paper_run_once() -> Any:
 
     return jsonify(
         {
-            "market_source": str(payload.get("data_source") or "binance").lower(),
+            "market_source": str(payload.get("data_source") or "coingecko").lower(),
             "candle_count": len(candles),
             "latest_price": latest.close,
             "latest_timestamp": latest.timestamp.isoformat(),
@@ -264,7 +264,7 @@ def backtest() -> Any:
     latest = candles[-1]
     return jsonify(
         {
-            "market_source": str(payload.get("data_source") or "binance").lower(),
+            "market_source": str(payload.get("data_source") or "coingecko").lower(),
             "candle_count": len(candles),
             "latest_price": latest.close,
             "latest_timestamp": latest.timestamp.isoformat(),
@@ -286,8 +286,8 @@ def _json_payload() -> dict[str, Any]:
 
 
 def _resolve_candles(payload: dict[str, Any]) -> Any:
-    symbol = str(payload.get("symbol") or os.getenv("SYMBOL", "BTCUSDT"))
-    data_source = str(payload.get("data_source") or "binance").lower()
+    symbol = str(payload.get("symbol") or os.getenv("SYMBOL", "BTCUSD"))
+    data_source = str(payload.get("data_source") or "coingecko").lower()
 
     if data_source == "binance" and not payload.get("csv_path"):
         interval = str(payload.get("interval") or DEFAULT_INTERVAL)

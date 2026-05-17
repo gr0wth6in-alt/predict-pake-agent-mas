@@ -35,14 +35,14 @@ https://YOUR_USERNAME.pythonanywhere.com
 
 Create buttons for:
 - GET /model/status
-- GET /market/ohlc?symbol=BTCUSDT&data_source=binance&days=30&interval=1h
-- POST /predict with JSON body {"symbol":"BTCUSDT","days":30,"interval":"1h","data_source":"binance"}
-- POST /paper/run-once with JSON body {"symbol":"BTCUSDT","days":30,"interval":"1h","data_source":"binance"}
-- POST /backtest with JSON body {"symbol":"BTCUSDT","days":30,"interval":"1h","data_source":"binance"}
+- GET /market/ohlc?symbol=BTCUSD&data_source=coingecko&coin_id=bitcoin&days=30
+- POST /predict with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
+- POST /paper/run-once with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
+- POST /backtest with JSON body {"symbol":"BTCUSD","coin_id":"bitcoin","vs_currency":"usd","days":30,"data_source":"coingecko"}
 
 Show prediction confidence, direction_score, buy/sell/hold signal, risk approval, paper fill, and backtest return.
 Do not store broker keys in the frontend.
-Use Binance klines as the only market data source in the frontend.
+Use CoinGecko OHLC as the only market data source in the frontend.
 Do not keep stale previous results after a failed fetch.
 Clear prediction, paper, and backtest panels when a new request starts.
 ```
@@ -59,10 +59,11 @@ async function predict(symbol: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      symbol: "BTCUSDT",
-      data_source: "binance",
-      interval: "1h",
+      symbol: "BTCUSD",
+      coin_id: "bitcoin",
+      vs_currency: "usd",
       days: 30,
+      data_source: "coingecko",
     }),
   });
 
