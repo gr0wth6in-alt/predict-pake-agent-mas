@@ -11,7 +11,12 @@ from trading_agent.agent import TradingAgent
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.broker.paper import PaperBroker
 from trading_agent.config import load_settings
-from trading_agent.data.binance_feed import DEFAULT_INTERVAL, DEFAULT_LIMIT, limit_for_days, load_binance_klines
+from trading_agent.data.binance_feed import (
+    DEFAULT_INTERVAL,
+    DEFAULT_LIMIT,
+    limit_for_days,
+    load_binance_klines,
+)
 from trading_agent.data.coingecko_feed import (
     DEFAULT_DAYS,
     DEFAULT_VS_CURRENCY,
@@ -19,11 +24,18 @@ from trading_agent.data.coingecko_feed import (
     search_coins,
 )
 from trading_agent.data.csv_feed import load_candles
-from trading_agent.prediction.baseline import MovingAverageMomentumPredictor
-from trading_agent.prediction.ml import TrainedModelPredictor
+from trading_agent.data.live_feed import fetch_live_market
+from trading_agent.features.indicators import compute_indicator_snapshot
+from trading_agent.prediction.factory import (
+    PREDICTOR_AUTO,
+    PREDICTOR_NAMES,
+    build_predictor,
+)
+from trading_agent.prediction.llm import LLMConfigurationError
 from trading_agent.prediction.protocols import Predictor
 from trading_agent.risk.manager import RiskManager
 from trading_agent.strategy.threshold import ThresholdStrategy
+from trading_agent.training.auto import AutoTrainConfig, auto_train_once
 
 
 app = Flask(__name__)
@@ -55,7 +67,10 @@ def root() -> Any:
         {
             "name": "autonomous-trading-agent-wsgi",
             "status": "ok",
-            "docs": "Use /health, /model/status, /predict, /paper/run-once, /backtest",
+            "docs": (
+                "Use /health, /model/status, /predictors, /market/live, "
+                "/predict, /paper/run-once, /backtest, /train/auto"
+            ),
         }
     )
 
@@ -73,6 +88,59 @@ def model_status() -> Any:
             "model_path": str(model_path),
             "exists": model_path.exists(),
             "message": "model is ready" if model_path.exists() else "model file is missing",
+        }
+    )
+
+
+@app.get("/predictors")
+def list_predictors() -> Any:
+    return jsonify(
+        {
+            "predictors": list(PREDICTOR_NAMES),
+            "default": PREDICTOR_AUTO,
+            "llm_available": bool(os.getenv("ANTHROPIC_API_KEY")),
+        }
+    )
+
+
+@app.get("/market/live")
+def market_live() -> Any:
+    symbol = request.args.get("symbol", os.getenv("SYMBOL", "BTCUSDT"))
+    interval = request.args.get("interval", DEFAULT_INTERVAL)
+    limit = int(request.args.get("limit", DEFAULT_LIMIT))
+    days_param = request.args.get("days")
+    days = int(days_param) if days_param not in (None, "") else None
+    vs_currency = request.args.get("vs_currency", DEFAULT_VS_CURRENCY)
+    coin_id = request.args.get("coin_id")
+
+    try:
+        snapshot = fetch_live_market(
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+            days=days,
+            vs_currency=vs_currency,
+            coin_id=coin_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface external errors as 400
+        return jsonify({"error": str(exc)}), 400
+
+    closes = [candle.close for candle in snapshot.candles]
+    highs = [candle.high for candle in snapshot.candles]
+    lows = [candle.low for candle in snapshot.candles]
+    indicators = (
+        compute_indicator_snapshot(closes, highs, lows).to_dict() if closes else {}
+    )
+
+    return jsonify(
+        {
+            "source": snapshot.source,
+            "fallbacks": snapshot.fallbacks,
+            "symbol": symbol,
+            "interval": interval,
+            "candles": len(snapshot.candles),
+            "ticker": snapshot.ticker.to_dict(),
+            "indicators": indicators,
         }
     )
 
@@ -172,7 +240,10 @@ def predict() -> Any:
     payload = _json_payload()
     try:
         candles = _resolve_candles(payload)
-        prediction = _build_predictor(payload.get("model_path"), candles[-1].symbol).predict(candles)
+        predictor = _build_predictor_from_payload(payload, candles[-1].symbol)
+        prediction = predictor.predict(candles)
+    except LLMConfigurationError as exc:
+        return jsonify({"error": str(exc)}), 400
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -180,6 +251,7 @@ def predict() -> Any:
     return jsonify(
         {
             "market_source": str(payload.get("data_source") or "binance").lower(),
+            "predictor": type(predictor).__name__,
             "candle_count": len(candles),
             "latest_price": latest.close,
             "latest_timestamp": latest.timestamp.isoformat(),
@@ -199,14 +271,17 @@ def paper_run_once() -> Any:
 
     try:
         candles = _resolve_candles(payload)
+        predictor = _build_predictor_from_payload(payload, candles[-1].symbol)
         broker = PaperBroker(cash=float(payload.get("cash") or settings.initial_cash))
         agent = TradingAgent(
-            predictor=_build_predictor(payload.get("model_path"), candles[-1].symbol),
+            predictor=predictor,
             strategy=_build_strategy(),
             risk_manager=_build_risk_manager(),
             broker=broker,
         )
         decision = agent.run_once(candles)
+    except LLMConfigurationError as exc:
+        return jsonify({"error": str(exc)}), 400
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -225,6 +300,7 @@ def paper_run_once() -> Any:
     return jsonify(
         {
             "market_source": str(payload.get("data_source") or "binance").lower(),
+            "predictor": type(predictor).__name__,
             "candle_count": len(candles),
             "latest_price": latest.close,
             "latest_timestamp": latest.timestamp.isoformat(),
@@ -251,13 +327,16 @@ def backtest() -> Any:
 
     try:
         candles = _resolve_candles(payload)
+        predictor = _build_predictor_from_payload(payload, candles[-1].symbol)
         engine = BacktestEngine(
-            predictor=_build_predictor(payload.get("model_path"), candles[-1].symbol),
+            predictor=predictor,
             strategy=_build_strategy(),
             risk_manager=_build_risk_manager(),
             starting_cash=float(payload.get("cash") or settings.initial_cash),
         )
         result = engine.run(candles)
+    except LLMConfigurationError as exc:
+        return jsonify({"error": str(exc)}), 400
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -278,6 +357,34 @@ def backtest() -> Any:
             else result.equity_curve[-1].__dict__,
         }
     )
+
+
+@app.post("/train/auto")
+def train_auto() -> Any:
+    payload = _json_payload()
+    try:
+        config = AutoTrainConfig(
+            symbol=str(payload.get("symbol") or os.getenv("SYMBOL", "BTCUSDT")),
+            output_path=str(payload.get("output_path") or "models/btcusd_auto_nb.json"),
+            data_source=str(payload.get("data_source") or "binance").lower(),
+            interval=str(payload.get("interval") or DEFAULT_INTERVAL),
+            limit=int(payload.get("limit") or DEFAULT_LIMIT),
+            days=int(payload.get("days") or DEFAULT_DAYS),
+            vs_currency=str(payload.get("vs_currency") or DEFAULT_VS_CURRENCY),
+            coin_id=payload.get("coin_id"),
+            csv_path=payload.get("csv_path"),
+            lookback=int(payload.get("lookback") or 10),
+            horizon=int(payload.get("horizon") or 3),
+            label_threshold=float(payload.get("label_threshold") or 0.005),
+            train_fraction=float(payload.get("train_fraction") or 0.8),
+        )
+        report = auto_train_once(config)
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001 - last resort, surface as 400
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(report.summary())
 
 
 def _json_payload() -> dict[str, Any]:
@@ -307,21 +414,33 @@ def _resolve_candles(payload: dict[str, Any]) -> Any:
             days=int(payload.get("days") or DEFAULT_DAYS),
         )
 
-    csv_path = Path(str(payload.get("csv_path"))) if payload.get("csv_path") else _default_csv_path()
+    if data_source == "live" and not payload.get("csv_path"):
+        days_value = payload.get("days")
+        snapshot = fetch_live_market(
+            symbol=symbol,
+            interval=str(payload.get("interval") or DEFAULT_INTERVAL),
+            limit=int(payload.get("limit") or DEFAULT_LIMIT),
+            days=int(days_value) if days_value not in (None, "") else None,
+            vs_currency=str(payload.get("vs_currency") or DEFAULT_VS_CURRENCY),
+            coin_id=payload.get("coin_id"),
+        )
+        return snapshot.candles
+
+    csv_path = (
+        Path(str(payload.get("csv_path")))
+        if payload.get("csv_path")
+        else _default_csv_path()
+    )
     return load_candles(csv_path, symbol)
 
 
-def _build_predictor(model_path: str | None, symbol: str | None = None) -> Predictor:
-    settings = load_settings()
-    resolved_model_path = Path(model_path) if model_path else _default_model_path()
-    if resolved_model_path.exists():
-        trained_predictor = TrainedModelPredictor.load(resolved_model_path)
-        if symbol is None or trained_predictor.model.symbol.upper() == symbol.upper():
-            return trained_predictor
-
-    return MovingAverageMomentumPredictor(
-        short_window=settings.prediction_short_window,
-        long_window=settings.prediction_long_window,
+def _build_predictor_from_payload(payload: dict[str, Any], symbol: str | None) -> Predictor:
+    name = str(payload.get("predictor") or PREDICTOR_AUTO)
+    model_path = payload.get("model_path")
+    return build_predictor(
+        name,
+        model_path=Path(model_path) if model_path else _default_model_path(),
+        symbol=symbol,
     )
 
 
@@ -347,4 +466,3 @@ def _default_model_path() -> Path:
 
 def _default_csv_path() -> Path:
     return Path(os.getenv("DEFAULT_CSV_PATH", "examples/mixed_training_prices.csv"))
-
