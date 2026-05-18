@@ -3,20 +3,23 @@ import {
   ArrowRight,
   BarChart3,
   Bot,
+  Brain,
   CheckCircle2,
   CircleDollarSign,
   Cpu,
   Database,
+  GraduationCap,
   Play,
   Radio,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   TrendingDown,
-  TrendingUp
+  TrendingUp,
+  Zap
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -27,38 +30,92 @@ import {
   YAxis
 } from "recharts";
 import {
+  AutoTrainSummary,
   Backtest,
+  CoinRequest,
+  LiveMarket,
   ModelStatus,
   PaperRun,
   Prediction,
+  PredictorList,
+  PredictorName,
   apiBaseUrl,
+  getLiveMarket,
   getModelStatus,
   getPrediction,
+  getPredictors,
   runBacktest,
-  runPaperOnce
+  runPaperOnce,
+  trainAuto
 } from "./lib/api";
 
 const coinPresets = [
-  { label: "BTC", symbol: "BTCUSD", coinId: "bitcoin" },
-  { label: "ETH", symbol: "ETHUSD", coinId: "ethereum" },
-  { label: "SOL", symbol: "SOLUSD", coinId: "solana" },
-  { label: "BNB", symbol: "BNBUSD", coinId: "binancecoin" },
-  { label: "XRP", symbol: "XRPUSD", coinId: "ripple" },
-  { label: "DOGE", symbol: "DOGEUSD", coinId: "dogecoin" }
+  { label: "BTC", symbol: "BTCUSDT", coingeckoSymbol: "BTCUSD", coinId: "bitcoin" },
+  { label: "ETH", symbol: "ETHUSDT", coingeckoSymbol: "ETHUSD", coinId: "ethereum" },
+  { label: "SOL", symbol: "SOLUSDT", coingeckoSymbol: "SOLUSD", coinId: "solana" },
+  { label: "BNB", symbol: "BNBUSDT", coingeckoSymbol: "BNBUSD", coinId: "binancecoin" },
+  { label: "XRP", symbol: "XRPUSDT", coingeckoSymbol: "XRPUSD", coinId: "ripple" },
+  { label: "DOGE", symbol: "DOGEUSDT", coingeckoSymbol: "DOGEUSD", coinId: "dogecoin" }
 ];
 
 type RunState = "idle" | "loading" | "ready" | "error";
+type DataSource = "live" | "binance" | "coingecko";
 
 export function App() {
-  const [symbol, setSymbol] = useState("BTCUSD");
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [coingeckoSymbol, setCoingeckoSymbol] = useState("BTCUSD");
   const [coinId, setCoinId] = useState("bitcoin");
   const [days, setDays] = useState(30);
+  const [dataSource, setDataSource] = useState<DataSource>("live");
+  const [predictor, setPredictor] = useState<PredictorName>("auto");
+  const [predictors, setPredictors] = useState<PredictorList | null>(null);
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [paper, setPaper] = useState<PaperRun | null>(null);
   const [backtest, setBacktest] = useState<Backtest | null>(null);
+  const [live, setLive] = useState<LiveMarket | null>(null);
+  const [liveStatus, setLiveStatus] = useState<RunState>("idle");
+  const [trainStatus, setTrainStatus] = useState<RunState>("idle");
+  const [trainSummary, setTrainSummary] = useState<AutoTrainSummary | null>(null);
+
+  // Pull the predictor list once so the dropdown reflects the backend's reality.
+  useEffect(() => {
+    getPredictors()
+      .then(setPredictors)
+      .catch(() => setPredictors(null));
+  }, []);
+
+  // Refresh the live ticker every 10 seconds while the page is open.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refresh() {
+      setLiveStatus("loading");
+      try {
+        const snapshot = await getLiveMarket({ symbol });
+        if (!cancelled) {
+          setLive(snapshot);
+          setLiveStatus("ready");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLive(null);
+          setLiveStatus("error");
+          // Don't surface this in the main error strip; it would flap.
+          console.warn("live market refresh failed", err);
+        }
+      }
+    }
+
+    refresh();
+    const handle = window.setInterval(refresh, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(handle);
+    };
+  }, [symbol]);
 
   const signalTone = useMemo(() => {
     const side = paper?.signal.side;
@@ -74,6 +131,25 @@ export function App() {
     ];
   }, [backtest]);
 
+  function buildRequest(): CoinRequest {
+    if (dataSource === "coingecko") {
+      return {
+        symbol: coingeckoSymbol,
+        coin_id: coinId,
+        vs_currency: "usd",
+        days,
+        data_source: "coingecko",
+        predictor
+      };
+    }
+    return {
+      symbol,
+      days,
+      data_source: dataSource,
+      predictor
+    };
+  }
+
   async function runFullCheck() {
     setStatus("loading");
     setError("");
@@ -83,18 +159,12 @@ export function App() {
     setBacktest(null);
 
     try {
-      const coinRequest = {
-        symbol,
-        coin_id: coinId,
-        vs_currency: "usd",
-        days,
-        data_source: "coingecko" as const
-      };
+      const request = buildRequest();
       const [model, nextPrediction, nextPaper, nextBacktest] = await Promise.all([
         getModelStatus(),
-        getPrediction(coinRequest),
-        runPaperOnce(coinRequest),
-        runBacktest(coinRequest)
+        getPrediction(request),
+        runPaperOnce(request),
+        runBacktest(request)
       ]);
       setModelStatus(model);
       setPrediction(nextPrediction);
@@ -104,6 +174,31 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown request error");
       setStatus("error");
+    }
+  }
+
+  async function runTrainNow() {
+    setTrainStatus("loading");
+    try {
+      const summary = await trainAuto({
+        symbol: dataSource === "coingecko" ? coingeckoSymbol : symbol,
+        data_source: dataSource === "live" ? "binance" : (dataSource as "binance" | "coingecko"),
+        days,
+        coin_id: dataSource === "coingecko" ? coinId : null,
+        output_path: `models/${(dataSource === "coingecko" ? coingeckoSymbol : symbol).toLowerCase()}_auto_nb.json`,
+        label_threshold: 0.005
+      });
+      setTrainSummary(summary);
+      setTrainStatus("ready");
+      // Refresh model status so the user sees the new file picked up.
+      try {
+        setModelStatus(await getModelStatus());
+      } catch {
+        // ignore – the train summary already shows the path.
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Training request failed");
+      setTrainStatus("error");
     }
   }
 
@@ -124,6 +219,10 @@ export function App() {
           <a className="nav-item active" href="#run">
             <Activity size={18} aria-hidden="true" />
             Run
+          </a>
+          <a className="nav-item" href="#live">
+            <Radio size={18} aria-hidden="true" />
+            Live
           </a>
           <a className="nav-item" href="#risk">
             <ShieldCheck size={18} aria-hidden="true" />
@@ -161,6 +260,7 @@ export function App() {
                 className={symbol === coin.symbol ? "preset active" : "preset"}
                 onClick={() => {
                   setSymbol(coin.symbol);
+                  setCoingeckoSymbol(coin.coingeckoSymbol);
                   setCoinId(coin.coinId);
                 }}
                 type="button"
@@ -175,7 +275,7 @@ export function App() {
               id="symbol"
               value={symbol}
               onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-              placeholder="BTCUSD"
+              placeholder="BTCUSDT"
             />
           </div>
           <div className="symbol-control">
@@ -198,9 +298,53 @@ export function App() {
               onChange={(event) => setDays(Number(event.target.value))}
             />
           </div>
+          <div className="symbol-control">
+            <label htmlFor="data-source">Source</label>
+            <select
+              id="data-source"
+              value={dataSource}
+              onChange={(event) => setDataSource(event.target.value as DataSource)}
+            >
+              <option value="live">live (binance + coingecko)</option>
+              <option value="binance">binance</option>
+              <option value="coingecko">coingecko</option>
+            </select>
+          </div>
+          <div className="symbol-control">
+            <label htmlFor="predictor">Predictor</label>
+            <select
+              id="predictor"
+              value={predictor}
+              onChange={(event) => setPredictor(event.target.value as PredictorName)}
+            >
+              {(predictors?.predictors || ["auto", "baseline", "multi", "ml", "llm"]).map(
+                (name) => (
+                  <option
+                    key={name}
+                    value={name}
+                    disabled={name === "llm" && predictors !== null && !predictors.llm_available}
+                  >
+                    {name}
+                    {name === "llm" && predictors !== null && !predictors.llm_available
+                      ? " (no API key)"
+                      : ""}
+                  </option>
+                )
+              )}
+            </select>
+          </div>
           <button className="primary-action" onClick={runFullCheck} disabled={status === "loading"}>
             {status === "loading" ? <RefreshCw size={18} /> : <Play size={18} />}
             Run agent check
+          </button>
+          <button
+            className="secondary-action"
+            onClick={runTrainNow}
+            disabled={trainStatus === "loading"}
+            type="button"
+          >
+            {trainStatus === "loading" ? <RefreshCw size={18} /> : <GraduationCap size={18} />}
+            Train now
           </button>
         </section>
 
@@ -215,7 +359,11 @@ export function App() {
             icon={<Sparkles size={20} />}
             label="Prediction"
             value={prediction ? formatScore(prediction.direction_score) : "--"}
-            detail={prediction?.rationale || "CoinGecko real OHLC"}
+            detail={
+              prediction
+                ? `${prediction.predictor || predictor} • ${prediction.rationale}`.slice(0, 110)
+                : "Pick a predictor and run"
+            }
           />
           <Metric
             icon={signalTone === "negative" ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
@@ -233,13 +381,143 @@ export function App() {
           <Metric
             icon={<CircleDollarSign size={20} />}
             label="Latest Price"
-            value={backtest?.latest_price ? currency(backtest.latest_price) : "--"}
+            value={
+              live?.ticker.last_price
+                ? currency(live.ticker.last_price)
+                : backtest?.latest_price
+                ? currency(backtest.latest_price)
+                : "--"
+            }
             detail={
-              backtest
+              live
+                ? `${live.source} • ${
+                    live.ticker.change_24h_pct != null
+                      ? `${live.ticker.change_24h_pct.toFixed(2)}% 24h`
+                      : "live tick"
+                  }`
+                : backtest
                 ? `${toPercent(backtest.total_return_pct / 100)} backtest, ${backtest.fills} fills`
-                : "Waiting for CoinGecko data"
+                : "Waiting for live tick"
             }
           />
+        </section>
+
+        <section id="live" className="insight-layout">
+          <div className="chart-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Live pulse</p>
+                <h3>{symbol} ticker + indicators</h3>
+              </div>
+              <Zap
+                size={20}
+                aria-hidden="true"
+                className={liveStatus === "loading" ? "spin" : undefined}
+              />
+            </div>
+            {live ? (
+              <div className="live-grid">
+                <LiveStat label="Last" value={currency(live.ticker.last_price)} />
+                <LiveStat
+                  label="24h change"
+                  value={
+                    live.ticker.change_24h_pct != null
+                      ? `${live.ticker.change_24h_pct.toFixed(2)}%`
+                      : "--"
+                  }
+                  tone={
+                    live.ticker.change_24h_pct == null
+                      ? "neutral"
+                      : live.ticker.change_24h_pct >= 0
+                      ? "positive"
+                      : "negative"
+                  }
+                />
+                <LiveStat
+                  label="24h high"
+                  value={live.ticker.high_24h != null ? currency(live.ticker.high_24h) : "--"}
+                />
+                <LiveStat
+                  label="24h low"
+                  value={live.ticker.low_24h != null ? currency(live.ticker.low_24h) : "--"}
+                />
+                <LiveStat
+                  label="RSI 14"
+                  value={fmtFixed(live.indicators.rsi_14, 1)}
+                  tone={rsiTone(live.indicators.rsi_14)}
+                />
+                <LiveStat
+                  label="MACD hist"
+                  value={fmtFixed(live.indicators.macd_histogram, 2)}
+                  tone={signTone(live.indicators.macd_histogram)}
+                />
+                <LiveStat
+                  label="EMA 12 / 26"
+                  value={`${fmtFixed(live.indicators.ema_12, 1)} / ${fmtFixed(
+                    live.indicators.ema_26,
+                    1
+                  )}`}
+                />
+                <LiveStat
+                  label="Bollinger %B"
+                  value={fmtFixed(live.indicators.bollinger_percent, 2)}
+                  tone={bollingerTone(live.indicators.bollinger_percent)}
+                />
+              </div>
+            ) : (
+              <div className="empty-chart">
+                {liveStatus === "loading"
+                  ? "Loading live ticker..."
+                  : "Live feed unavailable. Confirm the API host can reach Binance or CoinGecko."}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Self-training</p>
+                <h3>Latest auto-train</h3>
+              </div>
+              <Brain size={20} aria-hidden="true" />
+            </div>
+            {trainSummary ? (
+              <>
+                <div className="fill-card">
+                  <span>Model</span>
+                  <strong title={trainSummary.output_path}>
+                    {trainSummary.output_path.split("/").pop()}
+                  </strong>
+                </div>
+                <div className="fill-card">
+                  <span>Test accuracy</span>
+                  <strong>{toPercent(trainSummary.test_accuracy)}</strong>
+                </div>
+                <div className="fill-card">
+                  <span>Samples</span>
+                  <strong>
+                    {trainSummary.samples} ({trainSummary.train_samples}/
+                    {trainSummary.test_samples})
+                  </strong>
+                </div>
+                <div className="fill-card">
+                  <span>Source</span>
+                  <strong>
+                    {trainSummary.data_source} • {trainSummary.candle_count} candles
+                  </strong>
+                </div>
+                {trainSummary.warnings.length > 0 && (
+                  <div className="warning-strip">
+                    {trainSummary.warnings.slice(0, 2).join("; ")}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="empty-chart small">
+                Click <strong>Train now</strong> to fetch fresh data and retrain the JSON model.
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="insight-layout">
@@ -247,7 +525,7 @@ export function App() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Equity curve</p>
-                <h3>{backtest ? `${symbol} paper backtest` : "Run CoinGecko backtest"}</h3>
+                <h3>{backtest ? `${symbol} paper backtest` : "Run a backtest"}</h3>
               </div>
               <BarChart3 size={20} aria-hidden="true" />
             </div>
@@ -283,7 +561,7 @@ export function App() {
                 </ResponsiveContainer>
               ) : (
                 <div className="empty-chart">
-                  Run the agent to load real CoinGecko candles.
+                  Run the agent to load real candles and an equity curve.
                 </div>
               )}
             </div>
@@ -314,8 +592,21 @@ export function App() {
         </section>
 
         <section id="risk" className="system-strip">
-          <SystemItem icon={<Database size={18} />} label="Data" value="CoinGecko OHLC" />
-          <SystemItem icon={<Cpu size={18} />} label="Horizon" value={prediction ? `${prediction.horizon_candles} candles` : "--"} />
+          <SystemItem
+            icon={<Database size={18} />}
+            label="Data"
+            value={live ? `live (${live.source})` : "no live tick yet"}
+          />
+          <SystemItem
+            icon={<Cpu size={18} />}
+            label="Predictor"
+            value={prediction?.predictor || predictor}
+          />
+          <SystemItem
+            icon={<Brain size={18} />}
+            label="Model"
+            value={modelStatus ? (modelStatus.exists ? "trained" : "missing") : "--"}
+          />
           <SystemItem icon={<ShieldCheck size={18} />} label="Mode" value="paper only" />
         </section>
       </section>
@@ -343,6 +634,23 @@ function Metric({
       <strong>{value}</strong>
       <p>{detail}</p>
     </article>
+  );
+}
+
+function LiveStat({
+  label,
+  value,
+  tone = "neutral"
+}: {
+  label: string;
+  value: string;
+  tone?: "positive" | "negative" | "neutral";
+}) {
+  return (
+    <div className={`live-stat ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -382,4 +690,30 @@ function currency(value: number) {
 function formatScore(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(3)}`;
+}
+
+function fmtFixed(value: number | null | undefined, digits: number): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  return value.toFixed(digits);
+}
+
+function rsiTone(value: number | null | undefined): "positive" | "negative" | "neutral" {
+  if (value == null) return "neutral";
+  if (value <= 30) return "positive"; // oversold tends to bounce
+  if (value >= 70) return "negative"; // overbought tends to fade
+  return "neutral";
+}
+
+function signTone(value: number | null | undefined): "positive" | "negative" | "neutral" {
+  if (value == null) return "neutral";
+  if (value > 0) return "positive";
+  if (value < 0) return "negative";
+  return "neutral";
+}
+
+function bollingerTone(value: number | null | undefined): "positive" | "negative" | "neutral" {
+  if (value == null) return "neutral";
+  if (value <= 0.1) return "positive";
+  if (value >= 0.9) return "negative";
+  return "neutral";
 }
