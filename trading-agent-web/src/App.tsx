@@ -58,6 +58,8 @@ const coinPresets = [
   { label: "DOGE", symbol: "DOGEUSDT", coingeckoSymbol: "DOGEUSD", coinId: "dogecoin" }
 ];
 
+const intervalOptions = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
+
 type RunState = "idle" | "loading" | "ready" | "error";
 type DataSource = "live" | "binance" | "coingecko";
 
@@ -69,6 +71,15 @@ export function App() {
   const [dataSource, setDataSource] = useState<DataSource>("live");
   const [predictor, setPredictor] = useState<PredictorName>("auto");
   const [predictors, setPredictors] = useState<PredictorList | null>(null);
+  // Per-coin candle interval. Persists across the dashboard so the user can mix
+  // BTCUSDT@1m and ETHUSDT@5m and the autotrain knows which interval to use.
+  const [intervalsBySymbol, setIntervalsBySymbol] = useState<Record<string, string>>({
+    BTCUSDT: "1h"
+  });
+  const intervalForSymbol = (target: string) => intervalsBySymbol[target] ?? "1h";
+  const interval = intervalForSymbol(symbol);
+  const setIntervalForSymbol = (target: string, next: string) =>
+    setIntervalsBySymbol((current) => ({ ...current, [target]: next }));
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
@@ -94,7 +105,7 @@ export function App() {
     async function refresh() {
       setLiveStatus("loading");
       try {
-        const snapshot = await getLiveMarket({ symbol });
+        const snapshot = await getLiveMarket({ symbol, interval });
         if (!cancelled) {
           setLive(snapshot);
           setLiveStatus("ready");
@@ -103,7 +114,6 @@ export function App() {
         if (!cancelled) {
           setLive(null);
           setLiveStatus("error");
-          // Don't surface this in the main error strip; it would flap.
           console.warn("live market refresh failed", err);
         }
       }
@@ -115,7 +125,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(handle);
     };
-  }, [symbol]);
+  }, [symbol, interval]);
 
   const signalTone = useMemo(() => {
     const side = paper?.signal.side;
@@ -145,6 +155,7 @@ export function App() {
     return {
       symbol,
       days,
+      interval,
       data_source: dataSource,
       predictor
     };
@@ -184,13 +195,13 @@ export function App() {
         symbol: dataSource === "coingecko" ? coingeckoSymbol : symbol,
         data_source: dataSource === "live" ? "binance" : (dataSource as "binance" | "coingecko"),
         days,
+        interval,
         coin_id: dataSource === "coingecko" ? coinId : null,
-        output_path: `models/${(dataSource === "coingecko" ? coingeckoSymbol : symbol).toLowerCase()}_auto_nb.json`,
+        output_path: `models/${(dataSource === "coingecko" ? coingeckoSymbol : symbol).toLowerCase()}_${interval}_auto_nb.json`,
         label_threshold: 0.005
       });
       setTrainSummary(summary);
       setTrainStatus("ready");
-      // Refresh model status so the user sees the new file picked up.
       try {
         setModelStatus(await getModelStatus());
       } catch {
@@ -298,6 +309,20 @@ export function App() {
               onChange={(event) => setDays(Number(event.target.value))}
             />
           </div>
+          <div className="symbol-control compact">
+            <label htmlFor="interval">Interval</label>
+            <select
+              id="interval"
+              value={interval}
+              onChange={(event) => setIntervalForSymbol(symbol, event.target.value)}
+            >
+              {intervalOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="symbol-control">
             <label htmlFor="data-source">Source</label>
             <select
@@ -305,9 +330,9 @@ export function App() {
               value={dataSource}
               onChange={(event) => setDataSource(event.target.value as DataSource)}
             >
-              <option value="live">live (binance + coingecko)</option>
+              <option value="live">live (binance, fallback coingecko)</option>
               <option value="binance">binance</option>
-              <option value="coingecko">coingecko</option>
+              <option value="coingecko">coingecko (fallback only)</option>
             </select>
           </div>
           <div className="symbol-control">
@@ -407,7 +432,10 @@ export function App() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Live pulse</p>
-                <h3>{symbol} ticker + indicators</h3>
+                <h3>
+                  {symbol}
+                  <span className="interval-tag">@{interval}</span>
+                </h3>
               </div>
               <Zap
                 size={20}

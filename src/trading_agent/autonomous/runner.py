@@ -12,6 +12,9 @@ Glues four pieces together:
 4. A retraining thread fetches recent klines and retrains the JSON Naive Bayes
    model, so the agent literally trains itself while running.
 
+Each watched symbol can use its own candle interval (``BTCUSDT@1m, ETHUSDT@5m``)
+so a trader can mix scalping and swing timeframes in one run.
+
 The runner is intentionally a single class with a few small threads. No async, no
 event loops. Beginners can read it top to bottom.
 """
@@ -22,8 +25,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from typing import Deque, Iterable
 
 from trading_agent.broker.exchange_simulator import (
@@ -56,22 +58,28 @@ from trading_agent.training.auto import AutoTrainConfig, auto_train_once
 
 @dataclass
 class AutonomousConfig:
-    """Configuration for one autonomous run."""
+    """Configuration for one autonomous run.
 
-    symbols: list[str]                # which markets to watch and trade, e.g. ["BTCUSDT"]
+    ``symbols`` lists which markets to watch. ``symbol_intervals`` may override the
+    candle interval for individual markets, e.g. ``{"BTCUSDT": "1m", "ETHUSDT": "5m"}``.
+    Anything not listed falls back to ``candle_interval``.
+    """
+
+    symbols: list[str]
     starting_cash: float = 10_000.0
     fee_rate: float = DEFAULT_FEE_RATE
     predictor_name: str = PREDICTOR_AUTO
     model_path: str = "models/btcusd_auto_nb.json"
     decision_interval_seconds: float = 30.0
     stream_interval_seconds: float = DEFAULT_INTERVAL_SECONDS
-    candle_window: int = 200          # how many recent candles we keep in memory
+    candle_window: int = 200
     candle_interval: str = DEFAULT_INTERVAL
+    symbol_intervals: dict[str, str] = field(default_factory=dict)
     klines_limit: int = DEFAULT_LIMIT
-    buy_threshold: float = 0.2        # direction_score > this => BUY
-    sell_threshold: float = -0.2      # direction_score < this => SELL
-    quote_per_trade: float = 200.0    # USD-equivalent size per market order
-    max_position_quote: float = 2_500.0  # do not pile in past this notional per symbol
+    buy_threshold: float = 0.2
+    sell_threshold: float = -0.2
+    quote_per_trade: float = 200.0
+    max_position_quote: float = 2_500.0
     self_train_enabled: bool = True
     self_train_interval_minutes: int = 60
     self_train_days: int = 30
@@ -82,10 +90,15 @@ class AutonomousConfig:
     def base_for(self, symbol: str) -> str:
         return parse_symbol(symbol)[0]
 
+    def interval_for(self, symbol: str) -> str:
+        return self.symbol_intervals.get(symbol.strip().upper(), self.candle_interval)
+
 
 @dataclass
 class _SymbolState:
     candles: Deque[Candle]
+    interval: str = DEFAULT_INTERVAL
+    bucket_seconds: int = 3600
     last_decision_at: float = 0.0
     last_price: float = 0.0
 
@@ -100,6 +113,7 @@ class AutonomousStatus:
     open_orders: int
     holdings: dict[str, float]
     last_decisions: dict[str, str]
+    intervals: dict[str, str]
     last_retrain_summary: dict[str, object] | None = None
     errors: list[str] = field(default_factory=list)
 
@@ -113,6 +127,7 @@ class AutonomousStatus:
             "open_orders": self.open_orders,
             "holdings": self.holdings,
             "last_decisions": self.last_decisions,
+            "intervals": self.intervals,
             "last_retrain_summary": self.last_retrain_summary,
             "errors": list(self.errors),
         }
@@ -133,7 +148,25 @@ class AutonomousRunner:
             raise ValueError("config.symbols must not be empty")
 
         normalized = [symbol.strip().upper() for symbol in config.symbols]
-        self.config = AutonomousConfig(**{**config.__dict__, "symbols": normalized})
+        normalized_intervals = {
+            symbol.strip().upper(): interval.strip()
+            for symbol, interval in config.symbol_intervals.items()
+        }
+        # Validate: every override must match a watched symbol so users learn early
+        # if they made a typo like "BTUSDT@1m".
+        unknown = sorted(set(normalized_intervals) - set(normalized))
+        if unknown:
+            raise ValueError(
+                f"symbol_intervals references symbols that are not watched: {unknown}"
+            )
+
+        self.config = AutonomousConfig(
+            **{
+                **config.__dict__,
+                "symbols": normalized,
+                "symbol_intervals": normalized_intervals,
+            }
+        )
         self.settings = settings or load_settings()
 
         self.exchange = exchange or ExchangeSimulator(
@@ -147,10 +180,14 @@ class AutonomousRunner:
             interval_seconds=self.config.stream_interval_seconds,
         )
 
-        self._states: dict[str, _SymbolState] = {
-            symbol: _SymbolState(candles=deque(maxlen=self.config.candle_window))
-            for symbol in normalized
-        }
+        self._states: dict[str, _SymbolState] = {}
+        for symbol in normalized:
+            interval = self.config.interval_for(symbol)
+            self._states[symbol] = _SymbolState(
+                candles=deque(maxlen=self.config.candle_window),
+                interval=interval,
+                bucket_seconds=_interval_to_seconds(interval),
+            )
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._decision_thread: threading.Thread | None = None
@@ -173,7 +210,6 @@ class AutonomousRunner:
         self._stop_event.clear()
         self._started_at = datetime.now(UTC).isoformat()
 
-        # Warm up: load some recent candles per symbol so indicators have history.
         for symbol in self.config.symbols:
             self._warm_up_symbol(symbol)
 
@@ -196,7 +232,8 @@ class AutonomousRunner:
             self._train_thread.start()
 
         self._log(
-            f"runner started symbols={self.config.symbols} cash={self.exchange.cash:.2f}"
+            "runner started "
+            f"symbols={self._format_symbols()} cash={self.exchange.cash:.2f}"
         )
 
     def stop(self) -> None:
@@ -216,6 +253,7 @@ class AutonomousRunner:
             for base, holding in snapshot.holdings.items()
             if holding.quantity > 0
         }
+        intervals = {symbol: state.interval for symbol, state in self._states.items()}
         return AutonomousStatus(
             started_at=self._started_at or "",
             running=self._decision_thread is not None and self._decision_thread.is_alive(),
@@ -225,6 +263,7 @@ class AutonomousRunner:
             open_orders=snapshot.open_orders,
             holdings=holdings,
             last_decisions=dict(self._last_decisions),
+            intervals=intervals,
             last_retrain_summary=self._last_retrain_summary,
             errors=list(self._errors[-10:]),
         )
@@ -254,20 +293,20 @@ class AutonomousRunner:
             self._update_synthetic_candle(state, tick)
 
     def _update_synthetic_candle(self, state: _SymbolState, tick: Tick) -> None:
-        """Treat each tick as the close of the current 1m candle.
+        """Treat each tick as the close of the current candle bucket.
 
-        This keeps the live feed in sync with the indicator pipeline without waiting
-        for a fresh klines fetch. When the minute rolls over, we close the candle
-        and start a new one.
+        The bucket length follows the symbol's configured interval, so a 1m symbol
+        rolls over each minute and a 1h symbol rolls over each hour. When the
+        bucket boundary is crossed we close the candle and start a new one.
         """
 
         if not state.candles:
             return
 
         latest = state.candles[-1]
-        bucket_start = latest.timestamp.replace(second=0, microsecond=0)
-        tick_bucket = tick.timestamp.replace(second=0, microsecond=0)
-        if tick_bucket == bucket_start:
+        latest_bucket = _bucket_floor(latest.timestamp, state.bucket_seconds)
+        tick_bucket = _bucket_floor(tick.timestamp, state.bucket_seconds)
+        if tick_bucket == latest_bucket:
             updated = Candle(
                 timestamp=latest.timestamp,
                 symbol=latest.symbol,
@@ -308,10 +347,11 @@ class AutonomousRunner:
         with self._lock:
             state = self._states[symbol]
             candles = list(state.candles)
+            interval = state.interval
 
         if len(candles) < self._predictor.min_history:
             self._last_decisions[symbol] = (
-                f"warming-up ({len(candles)}/{self._predictor.min_history} candles)"
+                f"warming-up [{interval}] ({len(candles)}/{self._predictor.min_history} candles)"
             )
             return
 
@@ -326,7 +366,8 @@ class AutonomousRunner:
             action = "hold"
 
         self._last_decisions[symbol] = (
-            f"score={prediction.direction_score:+.3f} conf={prediction.confidence:.2f} -> {action}"
+            f"[{interval}] score={prediction.direction_score:+.3f} "
+            f"conf={prediction.confidence:.2f} -> {action}"
         )
 
     def _maybe_buy(self, symbol: str, price: float, reason: str) -> str:
@@ -359,7 +400,6 @@ class AutonomousRunner:
         if holding.quantity <= 0:
             return "sell-skipped:no-position"
 
-        # Sell either a slice equal to quote_per_trade or the whole position when small.
         target_qty = min(holding.quantity, max(self.config.quote_per_trade / max(price, 1e-9), 0.0))
         if target_qty <= 0:
             return "sell-skipped:zero-qty"
@@ -381,8 +421,6 @@ class AutonomousRunner:
     # ------------------------------------------------------------------
 
     def _self_train_loop(self) -> None:
-        # First retrain happens after the first interval, so the agent is not
-        # hammered at startup. A brief delay also lets the warm-up finish.
         wait_seconds = max(60.0, self.config.self_train_interval_minutes * 60.0)
         self._stop_event.wait(timeout=wait_seconds)
 
@@ -405,7 +443,7 @@ class AutonomousRunner:
             symbol=primary_symbol,
             output_path=self.config.model_path,
             data_source="binance",
-            interval=self.config.candle_interval,
+            interval=self.config.interval_for(primary_symbol),
             limit=self.config.klines_limit,
             days=self.config.self_train_days,
             lookback=self.config.self_train_lookback,
@@ -416,7 +454,6 @@ class AutonomousRunner:
         return report.summary()
 
     def _reload_predictor(self) -> None:
-        # Re-resolve the predictor so the trained-model branch picks up the new file.
         with self._lock:
             self._predictor = self._build_predictor()
 
@@ -433,15 +470,16 @@ class AutonomousRunner:
         )
 
     def _warm_up_symbol(self, symbol: str) -> None:
+        interval = self.config.interval_for(symbol)
         try:
             candles = load_binance_klines(
                 symbol=symbol,
-                interval=self.config.candle_interval,
-                limit=limit_for_days(self.config.self_train_days, self.config.candle_interval)
+                interval=interval,
+                limit=limit_for_days(self.config.self_train_days, interval)
                 or self.config.klines_limit,
             )
         except (ValueError, RuntimeError) as exc:
-            self._record_error(f"warm-up {symbol}: {exc}")
+            self._record_error(f"warm-up {symbol}@{interval}: {exc}")
             return
 
         with self._lock:
@@ -451,10 +489,12 @@ class AutonomousRunner:
                 state.candles.append(candle)
             if state.candles:
                 state.last_price = state.candles[-1].close
-                # seed the simulator's last price too so market orders can fill
                 self.exchange.on_tick(symbol, state.candles[-1].close)
 
-        self._log(f"warm-up {symbol}: {len(self._states[symbol].candles)} candles loaded")
+        self._log(
+            f"warm-up {symbol}@{interval}: "
+            f"{len(self._states[symbol].candles)} candles loaded"
+        )
 
     def _record_error(self, message: str) -> None:
         timestamped = f"{datetime.now(UTC).isoformat(timespec='seconds')} {message}"
@@ -463,6 +503,9 @@ class AutonomousRunner:
 
     def _log(self, message: str) -> None:
         print(f"[runner ] {datetime.now(UTC).isoformat(timespec='seconds')} {message}")
+
+    def _format_symbols(self) -> str:
+        return ", ".join(f"{symbol}@{state.interval}" for symbol, state in self._states.items())
 
 
 def run_until_interrupt(config: AutonomousConfig) -> None:
@@ -479,12 +522,69 @@ def run_until_interrupt(config: AutonomousConfig) -> None:
         runner.stop()
 
 
-def split_symbols(raw: Iterable[str] | str) -> list[str]:
+def split_symbols(raw: Iterable[str] | str) -> tuple[list[str], dict[str, str]]:
+    """Parse a CLI symbol list with optional ``@interval`` suffixes.
+
+    Examples
+    --------
+    ``"BTCUSDT,ETHUSDT"`` -> (``["BTCUSDT", "ETHUSDT"]``, ``{}``)
+    ``"BTCUSDT@1m, ETHUSDT@5m"`` -> (``["BTCUSDT", "ETHUSDT"]``, ``{"BTCUSDT":"1m","ETHUSDT":"5m"}``)
+    """
+
     if isinstance(raw, str):
         parts = [item for item in raw.replace(",", " ").split() if item]
     else:
-        parts = list(raw)
-    return [Path(symbol).name.upper() for symbol in parts]
+        parts = [str(item) for item in raw if str(item).strip()]
+
+    symbols: list[str] = []
+    intervals: dict[str, str] = {}
+    for raw_part in parts:
+        if "@" in raw_part:
+            symbol_part, _, interval_part = raw_part.partition("@")
+        else:
+            symbol_part, interval_part = raw_part, ""
+        symbol = symbol_part.strip().upper()
+        if not symbol:
+            continue
+        symbols.append(symbol)
+        if interval_part:
+            intervals[symbol] = interval_part.strip()
+    return symbols, intervals
+
+
+def _interval_to_seconds(interval: str) -> int:
+    """Convert a Binance interval string like ``1m``, ``5m``, ``1h`` or ``1d`` to seconds."""
+
+    cleaned = interval.strip().lower()
+    if not cleaned:
+        return 60
+    unit = cleaned[-1]
+    try:
+        value = int(cleaned[:-1])
+    except ValueError as exc:
+        raise ValueError(f"unsupported interval: {interval!r}") from exc
+    if value <= 0:
+        raise ValueError(f"interval value must be positive: {interval!r}")
+    if unit == "s":
+        return value
+    if unit == "m":
+        return value * 60
+    if unit == "h":
+        return value * 3600
+    if unit == "d":
+        return value * 86400
+    if unit == "w":
+        return value * 604_800
+    raise ValueError(f"unsupported interval unit: {interval!r}")
+
+
+def _bucket_floor(timestamp: datetime, bucket_seconds: int) -> datetime:
+    """Round ``timestamp`` down to the start of its candle bucket."""
+
+    base = datetime(1970, 1, 1, tzinfo=timestamp.tzinfo or UTC)
+    delta = (timestamp - base).total_seconds()
+    bucket_start_seconds = int(delta // bucket_seconds) * bucket_seconds
+    return base + timedelta(seconds=bucket_start_seconds)
 
 
 __all__ = [

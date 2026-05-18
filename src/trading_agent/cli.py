@@ -218,8 +218,12 @@ def run_live_snapshot(args: argparse.Namespace) -> None:
 
 
 def run_autonomous(args: argparse.Namespace) -> None:
+    symbols, symbol_intervals = split_symbols(args.symbols)
+    if not symbols:
+        raise SystemExit("--symbols must list at least one market, e.g. BTCUSDT@1m")
     config = AutonomousConfig(
-        symbols=split_symbols(args.symbols),
+        symbols=symbols,
+        symbol_intervals=symbol_intervals,
         starting_cash=args.cash,
         fee_rate=args.fee_rate,
         predictor_name=args.predictor,
@@ -353,7 +357,10 @@ def make_parser() -> argparse.ArgumentParser:
     autonomous.add_argument(
         "--symbols",
         default="BTCUSDT",
-        help="Comma- or space-separated list of USDT symbols to trade, e.g. BTCUSDT,ETHUSDT",
+        help=(
+            "Comma- or space-separated USDT symbols. Append @<interval> to override the "
+            "candle interval per coin, e.g. BTCUSDT@1m,ETHUSDT@5m,SOLUSDT@1h."
+        ),
     )
     autonomous.add_argument("--cash", type=float, default=10_000.0)
     autonomous.add_argument("--fee-rate", type=float, default=DEFAULT_FEE_RATE)
@@ -362,7 +369,11 @@ def make_parser() -> argparse.ArgumentParser:
     autonomous.add_argument("--decision-interval-seconds", type=float, default=30.0)
     autonomous.add_argument("--stream-interval-seconds", type=float, default=2.0)
     autonomous.add_argument("--candle-window", type=int, default=200)
-    autonomous.add_argument("--candle-interval", default=DEFAULT_INTERVAL)
+    autonomous.add_argument(
+        "--candle-interval",
+        default=DEFAULT_INTERVAL,
+        help="Default candle interval for symbols without an @<interval> override.",
+    )
     autonomous.add_argument("--klines-limit", type=int, default=DEFAULT_LIMIT)
     autonomous.add_argument("--buy-threshold", type=float, default=0.2)
     autonomous.add_argument("--sell-threshold", type=float, default=-0.2)

@@ -548,3 +548,16 @@ svg.spin {
     grid-template-columns: 1fr;
   }
 }
+
+
+.interval-tag {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid #244044;
+  border-radius: 8px;
+  color: #93f1d5;
+  background: #08151a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
