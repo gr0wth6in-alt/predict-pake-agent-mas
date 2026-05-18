@@ -120,7 +120,9 @@ export function App() {
     }
 
     refresh();
-    const handle = window.setInterval(refresh, 10_000);
+    // Poll once every 30s. Slow enough to stay under CoinGecko free-tier limits
+    // when the deploy host cannot reach Binance directly. Backend caches further.
+    const handle = window.setInterval(refresh, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(handle);
