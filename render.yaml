@@ -15,6 +15,6 @@ services:
       - key: SYMBOL
         value: BTCUSD
       - key: DEFAULT_MODEL_PATH
-        value: models/btcusd_demo_nb.json
+        value: models/btcusd_auto_nb.json
       - key: DEFAULT_CSV_PATH
         value: examples/mixed_training_prices.csv

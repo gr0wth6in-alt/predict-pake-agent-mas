@@ -342,7 +342,7 @@ def _build_risk_manager() -> RiskManager:
 
 
 def _default_model_path() -> Path:
-    return Path(os.getenv("DEFAULT_MODEL_PATH", "models/btcusd_demo_nb.json"))
+    return Path(os.getenv("DEFAULT_MODEL_PATH", "models/btcusd_auto_nb.json"))
 
 
 def _default_csv_path() -> Path:

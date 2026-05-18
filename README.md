@@ -67,12 +67,20 @@ python -m trading_agent.cli autonomous --symbols BTCUSDT --predictor llm
 ### Other CLI commands
 
 ```powershell
-python scripts/generate_demo_prices.py
-python -m trading_agent.cli train --csv examples/mixed_training_prices.csv --symbol BTCUSD --output models/btcusd_demo_nb.json --label-threshold 0.005
+python -m trading_agent.cli auto-train --data-source binance --symbol BTCUSDT --output models/btcusd_auto_nb.json
 python -m trading_agent.cli auto-train --data-source binance --symbol BTCUSDT --output models/btcusd_auto_nb.json --loop --interval-minutes 60
 python -m trading_agent.cli backtest --csv examples/sample_prices.csv --symbol BTCUSD --predictor multi
 python -m trading_agent.cli paper-once --data-source live --symbol BTCUSDT --predictor auto
 python -m trading_agent.cli live --symbol BTCUSDT
+```
+
+If you want a CSV-driven walkthrough with no network access, the synthetic
+fixtures still work:
+
+```powershell
+python scripts/generate_demo_prices.py
+python -m trading_agent.cli train --csv examples/mixed_training_prices.csv --symbol BTCUSD --output models/btcusd_local_nb.json --label-threshold 0.005
+python -m trading_agent.cli backtest --csv examples/mixed_training_prices.csv --symbol BTCUSD --model-path models/btcusd_local_nb.json
 ```
 
 ## Run as an API

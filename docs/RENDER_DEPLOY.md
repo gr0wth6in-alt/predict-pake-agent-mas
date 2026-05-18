@@ -26,7 +26,7 @@ Environment variables:
 PYTHONPATH=src
 TRADING_MODE=paper
 SYMBOL=BTCUSD
-DEFAULT_MODEL_PATH=models/btcusd_demo_nb.json
+DEFAULT_MODEL_PATH=models/btcusd_auto_nb.json
 DEFAULT_CSV_PATH=examples/mixed_training_prices.csv
 ```
 

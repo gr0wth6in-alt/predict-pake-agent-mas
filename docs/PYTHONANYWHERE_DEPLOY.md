@@ -54,7 +54,7 @@ os.chdir(project_home)
 os.environ.setdefault("PYTHONPATH", "src")
 os.environ.setdefault("TRADING_MODE", "paper")
 os.environ.setdefault("SYMBOL", "BTCUSD")
-os.environ.setdefault("DEFAULT_MODEL_PATH", "models/btcusd_demo_nb.json")
+os.environ.setdefault("DEFAULT_MODEL_PATH", "models/btcusd_auto_nb.json")
 os.environ.setdefault("DEFAULT_CSV_PATH", "examples/mixed_training_prices.csv")
 os.environ.setdefault("ALLOWED_ORIGINS", "*")
 
